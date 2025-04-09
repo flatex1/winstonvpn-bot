@@ -569,6 +569,7 @@ export const createVpnAccount = action({
       
       try {
         if (protocol === 'vmess') {
+          "use node"; // Необходимо для использования Buffer
           const vmessConfig = {
             v: '2',
             ps: email,
@@ -713,32 +714,120 @@ export const updateTrafficUsage = action({
         console.log("Ошибка получения информации об inbound:", inboundResponse.data);
         throw new Error("Не удалось получить информацию об inbound");
       }
-      
-      // Проверяем, есть ли данные clientStats
+
+      // Переменные для хранения данных о трафике
       let trafficUsed = 0;
       let foundClientStat = false;
+
+      // Детальный вывод данных для отладки
+      if (inboundResponse.data.obj) {
+        console.log("Получен inbound:", JSON.stringify({
+          id: inboundResponse.data.obj.id,
+          protocol: inboundResponse.data.obj.protocol,
+          port: inboundResponse.data.obj.port,
+          hasClientStats: !!inboundResponse.data.obj.clientStats,
+          clientStatsCount: inboundResponse.data.obj.clientStats ? inboundResponse.data.obj.clientStats.length : 0
+        }, null, 2));
+      }
       
+      // Пробуем получить статистику напрямую через специальный API endpoint
+      console.log(`Получение статистики клиента через отдельный API endpoint для ${account.email}`);
       try {
-        if (inboundResponse.data.obj && typeof inboundResponse.data.obj === 'object') {
+        const statsResponse = await axios.get(
+          `${XUI_API_URL}/panel/api/inbounds/getClientTraffics/${account.email}`,
+          {
+            headers: {
+              Cookie: sessionCookie,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          }
+        );
+        
+        console.log("Статус получения статистики клиента:", statsResponse.status);
+        console.log("Данные статистики:", JSON.stringify(statsResponse.data, null, 2));
+        
+        if (statsResponse.data && statsResponse.data.success && statsResponse.data.obj) {
+          // Пробуем извлечь данные из прямого ответа API статистики
+          const stats = statsResponse.data.obj;
+          if (stats.up !== undefined && stats.down !== undefined) {
+            const up = Number(stats.up) || 0;
+            const down = Number(stats.down) || 0;
+            trafficUsed = up + down;
+            foundClientStat = true;
+            console.log(`Найдена статистика через API: upload=${up}, download=${down}, total=${trafficUsed}`);
+          }
+        }
+      } catch (error) {
+        console.log("Ошибка при получении статистики через отдельный API endpoint:", error instanceof Error ? error.message : String(error));
+        
+        // Пробуем получить статистику по UUID
+        console.log(`Попытка получения статистики по UUID клиента: ${account.clientId}`);
+        try {
+          const statsResponseById = await axios.get(
+            `${XUI_API_URL}/panel/api/inbounds/getClientTrafficsById/${account.clientId}`,
+            {
+              headers: {
+                Cookie: sessionCookie,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              }
+            }
+          );
+          
+          console.log("Статус получения статистики клиента по UUID:", statsResponseById.status);
+          console.log("Данные статистики по UUID:", JSON.stringify(statsResponseById.data, null, 2));
+          
+          if (statsResponseById.data && statsResponseById.data.success && statsResponseById.data.obj) {
+            // Пробуем извлечь данные из ответа API статистики
+            const stats = statsResponseById.data.obj;
+            if (stats.up !== undefined && stats.down !== undefined) {
+              const up = Number(stats.up) || 0;
+              const down = Number(stats.down) || 0;
+              trafficUsed = up + down;
+              foundClientStat = true;
+              console.log(`Найдена статистика через API по UUID: upload=${up}, download=${down}, total=${trafficUsed}`);
+            }
+          }
+        } catch (uuidError) {
+          console.log("Ошибка при получении статистики по UUID:", uuidError instanceof Error ? uuidError.message : String(uuidError));
+        }
+      }
+      
+      // Если не удалось получить статистику через API, пробуем получить из объекта inbound
+      if (!foundClientStat && inboundResponse.data.obj) {
+        try {
           const inbound = inboundResponse.data.obj;
+          
+          // Проверяем наличие clientStats в объекте inbound
           if (inbound.clientStats && Array.isArray(inbound.clientStats)) {
+            console.log(`Найдено ${inbound.clientStats.length} записей статистики клиентов`);
+            
+            // Выведем все email'ы для отладки
+            const clientEmails = inbound.clientStats.map((stat: any) => stat.email);
+            console.log("Доступные email в статистике:", clientEmails);
+            
+            // Ищем статистику по email клиента
             const clientStat = inbound.clientStats.find(
-              (stat: any) => stat.email === args.email
+              (stat: any) => stat.email === account.email
             );
             
             if (clientStat) {
               foundClientStat = true;
-              trafficUsed = (clientStat.up || 0) + (clientStat.down || 0);
-              console.log(`Найдена статистика для клиента ${args.email}: upload=${clientStat.up}, download=${clientStat.down}, total=${trafficUsed}`);
+              const up = Number(clientStat.up) || 0;
+              const down = Number(clientStat.down) || 0;
+              trafficUsed = up + down;
+              console.log(`Найдена статистика для клиента ${account.email}: upload=${up}, download=${down}, total=${trafficUsed}`);
             }
+          } else {
+            console.log("В объекте inbound отсутствует clientStats или это не массив");
           }
+        } catch (error) {
+          console.log("Ошибка при разборе данных статистики из inbound:", error instanceof Error ? error.message : String(error));
         }
-      } catch (error) {
-        console.log("Ошибка при разборе данных статистики:", error);
       }
       
-      // Если не удалось получить статистику, но запрос был успешным,
-      // используем текущее значение трафика или небольшое приращение для тестирования
+      // Если не удалось получить статистику ни одним из способов, используем текущее значение
       if (!foundClientStat) {
         console.log(`Не удалось найти статистику клиента ${args.email}, используем текущее значение`);
         trafficUsed = account.trafficUsed;
