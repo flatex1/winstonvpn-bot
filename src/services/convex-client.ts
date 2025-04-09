@@ -5,10 +5,8 @@ import { createLogger } from "../utils/logger";
 import config from "../utils/config";
 import { Id } from "../../convex/_generated/dataModel";
 
-// Создаем логгер для клиента Convex
 const logger = createLogger("convex-client");
 
-// Типы для Convex моделей
 export interface User {
   _id: Id<"users">;
   telegramId: string;
@@ -299,8 +297,6 @@ export class ConvexClient {
   }
 }
 
-// Экспортируем экземпляр клиента для использования в проекте
 export const convexClient = new ConvexClient();
 
-// Экспортируем клиент по умолчанию
 export default convexClient; 

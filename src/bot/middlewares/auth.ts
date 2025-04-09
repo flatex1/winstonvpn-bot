@@ -4,13 +4,11 @@ import convexClient from "../../services/convex-client";
 import config from "../../utils/config";
 import { User } from "../../services/convex-client";
 
-// Расширяем тип Context для добавления пользовательских свойств
 interface Context extends BaseContext {
   user?: User | null;
   isAdmin?: boolean;
 }
 
-// Создаем логгер для модуля
 const logger = createLogger("middleware:auth");
 
 /**
@@ -30,10 +28,8 @@ export async function authMiddleware(ctx: Context, next: NextFunction): Promise<
 
     logger.debug(`Аутентификация пользователя ${telegramId}`);
 
-    // Получаем пользователя из базы данных
     const user = await convexClient.getUserByTelegramId(telegramId);
 
-    // Если пользователь не найден, регистрируем его
     if (!user) {
       logger.info(`Регистрация нового пользователя ${telegramId}`);
       
@@ -45,13 +41,10 @@ export async function authMiddleware(ctx: Context, next: NextFunction): Promise<
       );
     }
 
-    // Добавляем информацию о пользователе в контекст
     ctx.user = user;
 
-    // Проверяем, является ли пользователь администратором
     ctx.isAdmin = user?.isAdmin || config.ADMIN_TELEGRAM_IDS.includes(telegramId);
 
-    // Передаем управление следующему middleware
     await next();
   } catch (error) {
     logger.error("Ошибка в middleware аутентификации", error);
@@ -59,7 +52,9 @@ export async function authMiddleware(ctx: Context, next: NextFunction): Promise<
   }
 }
 
-// Middleware для проверки блокировки пользователя
+/**
+ * Middleware для проверки блокировки пользователя
+ */
 export async function blockCheckMiddleware(ctx: Context, next: NextFunction): Promise<void> {
   if (!ctx.from) {
     return;
@@ -68,10 +63,8 @@ export async function blockCheckMiddleware(ctx: Context, next: NextFunction): Pr
   try {
     const telegramId = ctx.from.id.toString();
     
-    // Получаем пользователя из базы данных
     const user = await convexClient.getUserByTelegramId(telegramId);
 
-    // Если пользователь заблокирован, отправляем сообщение и прерываем цепочку
     if (user?.isBlocked) {
       logger.warn(`Заблокированный пользователь ${telegramId} пытается использовать бота`);
       
@@ -82,7 +75,6 @@ export async function blockCheckMiddleware(ctx: Context, next: NextFunction): Pr
       return;
     }
 
-    // Передаем управление следующему middleware
     await next();
   } catch (error) {
     logger.error("Ошибка в middleware проверки блокировки", error);
@@ -90,7 +82,9 @@ export async function blockCheckMiddleware(ctx: Context, next: NextFunction): Pr
   }
 }
 
-// Middleware для проверки прав администратора
+/**
+ * Middleware для проверки прав администратора
+ */
 export function adminRequiredMiddleware(ctx: Context, next: NextFunction): Promise<void> {
   if (!ctx.isAdmin) {
     ctx.reply("У вас нет прав для выполнения этого действия.");

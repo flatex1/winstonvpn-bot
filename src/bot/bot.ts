@@ -4,39 +4,30 @@ import config from "../utils/config";
 import commands from "./commands";
 import { authMiddleware, blockCheckMiddleware } from "./middlewares";
 
-// Создаем логгер для бота
 const logger = createLogger("telegram-bot");
 
-// Определение типа сессии
 interface SessionData {}
 
-// Расширение типа Context для поддержки пользовательских свойств
 export interface MyContext extends Context, SessionFlavor<SessionData> {
   user: any; // Пользователь из Convex
-  isAdmin: boolean; // Флаг администратора
+  isAdmin: boolean;
 }
 
-// Инициализация бота
 export const bot = new Bot<MyContext>(config.BOT_TOKEN);
 
-// Регистрация middleware
 bot.use(session({
   initial: () => ({}),
 }));
 
-// Аутентификация и проверка блокировки пользователя
 bot.use(authMiddleware);
 bot.use(blockCheckMiddleware);
 
-// Регистрация всех команд из индексного файла
 bot.use(commands);
 
-// Обработка неизвестных команд
 bot.command(["*"], async (ctx) => {
   await ctx.reply("Неизвестная команда. Используйте /help для получения списка доступных команд.");
 });
 
-// Глобальная обработка ошибок
 bot.catch((err) => {
   const ctx = err.ctx;
   logger.error(`Ошибка при обработке ${ctx.update.update_id}:`, err.error);
@@ -50,7 +41,6 @@ bot.catch((err) => {
   }
 });
 
-// Функция запуска бота
 export async function startBot() {
   try {
     logger.info("Запуск бота...");
@@ -72,5 +62,4 @@ export async function startBot() {
   }
 }
 
-// Экспортируем бот и функцию запуска
 export default { bot, startBot }; 

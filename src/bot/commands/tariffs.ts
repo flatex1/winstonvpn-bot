@@ -5,20 +5,16 @@ import vpnService from "../../services/vpn-service";
 import { createTariffsKeyboard, createConfirmTariffKeyboard } from "../keyboards";
 import { api } from "../../../convex/_generated/api";
 
-// Создаем логгер для модуля
 const logger = createLogger("command:tariffs");
 
-// Создаем композер для обработки команды /tariffs
 const composer = new Composer();
 
-// Обработчик команды /tariffs
 composer.command("tariffs", async (ctx) => {
   try {
     const telegramId = ctx.from?.id.toString();
     
     logger.info(`Пользователь ${telegramId} запросил список тарифов`);
     
-    // Получаем список активных тарифов
     const tariffs = await convexClient.getActivePlans();
     
     if (!tariffs || tariffs.length === 0) {
@@ -26,10 +22,8 @@ composer.command("tariffs", async (ctx) => {
       return;
     }
     
-    // Создаем клавиатуру с тарифами
     const keyboard = createTariffsKeyboard(tariffs);
     
-    // Отправляем сообщение со списком тарифов
     await ctx.reply(
       `📝 *Выберите тариф VPN*
 
@@ -37,7 +31,7 @@ composer.command("tariffs", async (ctx) => {
 
 ${tariffs.map(tariff => 
   `*${tariff.name}*
-  • Трафик: ${tariff.trafficGB} GB
+  • Трафик: ${tariff.trafficGB} ГБ
   • Период: ${tariff.durationDays} дней
   • Описание: ${tariff.description}
   `).join("\n")}
@@ -80,7 +74,7 @@ composer.hears("📝 Выбрать тариф", async (ctx) => {
 
 ${tariffs.map(tariff => 
   `*${tariff.name}*
-  • Трафик: ${tariff.trafficGB} GB
+  • Трафик: ${tariff.trafficGB} ГБ
   • Период: ${tariff.durationDays} дней
   • Описание: ${tariff.description}
   `).join("\n")}
@@ -118,16 +112,14 @@ composer.callbackQuery(/^select_tariff:(.+)$/, async (ctx) => {
       return;
     }
     
-    // Создаем клавиатуру подтверждения
     const keyboard = createConfirmTariffKeyboard(tariffId);
     
-    // Отправляем сообщение с подтверждением
     await ctx.editMessageText(
       `📋 *Подтверждение выбора тарифа*
 
 Вы выбрали тариф *${tariff.name}*:
 
-• Трафик: ${tariff.trafficGB} GB
+• Трафик: ${tariff.trafficGB} ГБ
 • Период: ${tariff.durationDays} дней
 • Описание: ${tariff.description}
 
@@ -157,15 +149,12 @@ composer.callbackQuery(/^confirm_tariff:(.+)$/, async (ctx) => {
     
     logger.info(`Пользователь ${telegramId} подтвердил выбор тарифа ${tariffId}`);
     
-    // Уведомляем о процессе
     await ctx.answerCallbackQuery({
       text: "Создаем VPN-аккаунт...",
     });
     
-    // Создаем VPN-аккаунт
     const result = await vpnService.createUserVpnAccount(telegramId, tariffId);
     
-    // Отправляем результат
     await ctx.editMessageText(result, {
       parse_mode: "Markdown",
     });
@@ -199,10 +188,8 @@ composer.callbackQuery("cancel_tariff", async (ctx) => {
       return;
     }
     
-    // Создаем клавиатуру с тарифами
     const keyboard = createTariffsKeyboard(tariffs);
-    
-    // Возвращаемся к списку тарифов
+
     await ctx.editMessageText(
       `📝 *Выберите тариф VPN*
 
@@ -210,7 +197,7 @@ composer.callbackQuery("cancel_tariff", async (ctx) => {
 
 ${tariffs.map(tariff => 
   `*${tariff.name}*
-  • Трафик: ${tariff.trafficGB} GB
+  • Трафик: ${tariff.trafficGB} ГБ
   • Период: ${tariff.durationDays} дней
   • Описание: ${tariff.description}
   `).join("\n")}
@@ -233,5 +220,4 @@ ${tariffs.map(tariff =>
   }
 });
 
-// Экспортируем композер
 export default composer; 

@@ -38,6 +38,7 @@ export function createConfirmTariffKeyboard(tariffId: string): InlineKeyboard {
 }
 
 // Клавиатура для админки
+// TODO: Добавить функционал для админки
 export const adminKeyboard = new Keyboard()
   .text("👥 Пользователи")
   .text("📊 Статистика")

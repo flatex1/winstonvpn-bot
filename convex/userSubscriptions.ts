@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
+import { api } from "./_generated/api";
 
 // Получение активной подписки пользователя
 export const getActiveSubscription = query({
@@ -147,6 +148,8 @@ export const cancelSubscription = mutation({
 export const checkSubscriptionStatuses = mutation({
   handler: async (ctx) => {
     const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000; // 1 день в миллисекундах
+    const threeDaysMs = 3 * oneDayMs; // 3 дня в миллисекундах
     
     // Получаем все активные подписки, срок которых истек
     const expiredSubscriptions = await ctx.db
@@ -165,10 +168,117 @@ export const checkSubscriptionStatuses = mutation({
         status: "expired",
         lastUpdatedAt: now,
       });
+      
+      // Отправляем уведомление пользователю о том, что подписка истекла
+      await sendSubscriptionNotification(ctx, subscription.userId, "expired", subscription._id);
+    }
+    
+    // Находим подписки, которые истекут через 1 день
+    const expiresInOneDaySubscriptions = await ctx.db
+      .query("userSubscriptions")
+      .filter((q) => 
+        q.and(
+          q.eq(q.field("status"), "active"),
+          q.gt(q.field("expiresAt"), now),
+          q.lt(q.field("expiresAt"), now + oneDayMs)
+        )
+      )
+      .collect();
+    
+    // Отправляем уведомления о скором истечении (1 день)
+    for (const subscription of expiresInOneDaySubscriptions) {
+      await sendSubscriptionNotification(ctx, subscription.userId, "expires_soon_1day", subscription._id);
+    }
+    
+    // Находим подписки, которые истекут через 3 дня
+    const expiresInThreeDaysSubscriptions = await ctx.db
+      .query("userSubscriptions")
+      .filter((q) => 
+        q.and(
+          q.eq(q.field("status"), "active"),
+          q.gt(q.field("expiresAt"), now + oneDayMs),
+          q.lt(q.field("expiresAt"), now + threeDaysMs)
+        )
+      )
+      .collect();
+    
+    // Отправляем уведомления о скором истечении (3 дня)
+    for (const subscription of expiresInThreeDaysSubscriptions) {
+      await sendSubscriptionNotification(ctx, subscription.userId, "expires_soon_3days", subscription._id);
     }
     
     return {
       expiredCount: expiredSubscriptions.length,
+      expiresInOneDayCount: expiresInOneDaySubscriptions.length,
+      expiresInThreeDaysCount: expiresInThreeDaysSubscriptions.length
     };
   },
-}); 
+});
+
+// Функция для отправки уведомлений пользователям
+async function sendSubscriptionNotification(
+  ctx: any,
+  userId: Id<"users">,
+  notificationType: "expired" | "expires_soon_1day" | "expires_soon_3days",
+  subscriptionId: Id<"userSubscriptions">
+) {
+  // Проверяем, не отправляли ли мы уже такое уведомление недавно
+  const lastNotification = await ctx.db
+    .query("notifications")
+    .withIndex("by_user_type_subscription", (q: any) => 
+      q.eq("userId", userId)
+      .eq("type", notificationType)
+      .eq("subscriptionId", subscriptionId)
+    )
+    .order("desc")
+    .first();
+  
+  const now = Date.now();
+  
+  // Если такое уведомление уже отправлялось в течение последних 12 часов, пропускаем
+  if (lastNotification && (now - lastNotification.createdAt < 12 * 60 * 60 * 1000)) {
+    return;
+  }
+  
+  // Получаем информацию о пользователе
+  const user = await ctx.db.get(userId);
+  if (!user) return;
+  
+  // Получаем информацию о подписке и тарифе
+  const subscription = await ctx.db.get(subscriptionId);
+  if (!subscription) return;
+  
+  const plan = await ctx.db.get(subscription.planId);
+  if (!plan) return;
+  
+  let message = "";
+  
+  // Формируем сообщение в зависимости от типа уведомления
+  switch (notificationType) {
+    case "expired":
+      message = `🚨 Ваша подписка "${plan.name}" истекла. Продлите её, чтобы продолжить пользоваться сервисом.`;
+      break;
+    case "expires_soon_1day":
+      message = `⚠️ Ваша подписка "${plan.name}" истекает через 1 день. Не забудьте её продлить!`;
+      break;
+    case "expires_soon_3days":
+      message = `ℹ️ Ваша подписка "${plan.name}" истекает через 3 дня. Рекомендуем продлить её заранее.`;
+      break;
+  }
+  
+  if (message) {
+    // Сохраняем уведомление в базе
+    await ctx.db.insert("notifications", {
+      userId,
+      type: notificationType,
+      subscriptionId,
+      message,
+      isRead: false,
+      createdAt: now,
+      isSent: false // Устанавливаем флаг, что уведомление не отправлено
+    });
+    
+    // Уведомления будут отправлены через cron задачу в notifications.ts
+    // Удаляем прямой вызов action, так как он вызывает ошибку
+  }
+} 

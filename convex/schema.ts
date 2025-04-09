@@ -46,4 +46,17 @@ export default defineSchema({
     lastUpdatedAt: v.number(), // Timestamp последнего обновления
     connectionDetails: v.string(), // Строка подключения или ссылка для импорта
   }).index("by_user", ["userId"]).index("by_email", ["email"]),
+  
+  // Таблица уведомлений
+  notifications: defineTable({
+    userId: v.id("users"), // ID пользователя
+    type: v.string(), // Тип уведомления: expired, expires_soon_1day, expires_soon_3days
+    subscriptionId: v.optional(v.id("userSubscriptions")), // ID подписки (может отсутствовать)
+    message: v.string(), // Текст уведомления
+    isRead: v.boolean(), // Прочитано ли уведомление
+    createdAt: v.number(), // Timestamp создания
+    isSent: v.optional(v.boolean())
+  }).index("by_user", ["userId"])
+    .index("by_user_type", ["userId", "type"])
+    .index("by_user_type_subscription", ["userId", "type", "subscriptionId"]),
 }); 

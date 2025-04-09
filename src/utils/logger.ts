@@ -1,6 +1,5 @@
 import { isDev } from './config';
 
-// Простая система логирования с разными уровнями и форматированием
 class Logger {
   private readonly namespace: string;
 
@@ -8,7 +7,6 @@ class Logger {
     this.namespace = namespace;
   }
 
-  // Форматирование сообщения с добавлением временной метки и пространства имен
   private format(level: string, message: string, data?: any): string {
     const timestamp = new Date().toISOString();
     let formattedMessage = `[${timestamp}] [${level}] [${this.namespace}] ${message}`;

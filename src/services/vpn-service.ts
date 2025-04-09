@@ -190,7 +190,7 @@ export class VpnService {
       // Возвращаем строку подключения
       return `🔐 *Данные для подключения к VPN*
 
-Воспользуйтесь приложением V2rayNG для Android или Shadowrocket для iOS.
+Воспользуйтесь приложением V2rayNG для Android или Happ для iOS.
 
 📲 *Инструкция*:
 1. Установите приложение
@@ -216,10 +216,6 @@ ${vpnAccount.connectionDetails}
    */
   async createUserVpnAccount(telegramId: string, subscriptionPlanId: string): Promise<string> {
     try {
-      console.log("createUserVpnAccount called with:", JSON.stringify({
-        telegramId,
-        subscriptionPlanId
-      }));
       
       // Получаем пользователя из Convex
       const user = await convexClient.getUserByTelegramId(telegramId) as ConvexUser;
@@ -227,31 +223,23 @@ ${vpnAccount.connectionDetails}
         return "Пользователь не найден";
       }
       
-      console.log("User found:", JSON.stringify(user));
-
       // Проверяем, есть ли уже активная подписка
       const existingSubscription = await convexClient.getActiveSubscription(user._id) as ConvexSubscription;
       if (existingSubscription) {
         return "У вас уже есть активная подписка! Воспользуйтесь командой /subscription для просмотра информации.";
       }
       
-      console.log("No existing subscription found, creating new one");
-
       // Создаем подписку (бесплатно)
       const subscriptionId = await convexClient.createFreeSubscription(
         user._id,
-        subscriptionPlanId as unknown as Id<"subscriptionPlans">
+        subscriptionPlanId as Id<"subscriptionPlans">
       );
-      
-      console.log("Subscription created with ID:", subscriptionId);
       
       // Получаем полные данные о подписке
       const subscription = await convexClient.getActiveSubscription(user._id) as ConvexSubscription;
       if (!subscription) {
         throw new Error("Не удалось получить созданную подписку");
       }
-      
-      console.log("Subscription details fetched:", JSON.stringify(subscription));
 
       // Создаем VPN-аккаунт
       const inboundId = Number(config.XUI_DEFAULT_INBOUND_ID);
@@ -269,12 +257,6 @@ ${vpnAccount.connectionDetails}
         userSubscriptionId: subscription._id,
         inboundId
       });
-
-      console.log("Creating VPN account with:", JSON.stringify({
-        userId: user._id,
-        userSubscriptionId: subscription._id,
-        inboundId
-      }));
 
       const vpnAccount = await convexClient.createVpnAccount(
         user._id,
@@ -297,8 +279,6 @@ ${vpnAccount.connectionDetails}
   }
 }
 
-// Экспортируем экземпляр сервиса для использования в проекте
 export const vpnService = new VpnService();
 
-// Экспортируем сервис по умолчанию
 export default vpnService; 

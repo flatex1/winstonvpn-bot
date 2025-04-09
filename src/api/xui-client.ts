@@ -168,19 +168,6 @@ export class XuiClient {
   }
 
   /**
-   * Получение информации о сервере
-   */
-  async getServerInfo(): Promise<ServerInfo> {
-    const response = await this.request<ServerInfo>("get", "/panel/api/server/status");
-    
-    if (!response.success || !response.obj) {
-      throw new Error(response.message || "Не удалось получить информацию о сервере");
-    }
-    
-    return response.obj;
-  }
-
-  /**
    * Получение списка inbounds
    */
   async getInbounds(): Promise<Inbound[]> {
@@ -262,26 +249,21 @@ export class XuiClient {
    * Обновление данных клиента
    */
   async updateClient(inboundId: number, client: UpdateClientRequest): Promise<boolean> {
+    // Форматируем данные согласно требованиям API
+    const data = {
+      id: inboundId,
+      settings: JSON.stringify({
+        clients: [client]
+      })
+    };
+    
     const response = await this.request<void>(
       "post",
-      `/panel/api/inbound/updateClient/${inboundId}`,
-      client
+      `/panel/api/inbounds/updateClient`,
+      data
     );
     
     return response.success;
-  }
-
-  /**
-   * Получение общей статистики трафика системы
-   */
-  async getTrafficStats(): Promise<TrafficStats> {
-    const response = await this.request<TrafficStats>("get", "/panel/api/stats/traffic");
-    
-    if (!response.success || !response.obj) {
-      throw new Error(response.message || "Не удалось получить статистику трафика");
-    }
-    
-    return response.obj;
   }
 
   /**

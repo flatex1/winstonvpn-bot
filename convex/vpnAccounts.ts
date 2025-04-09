@@ -216,8 +216,14 @@ export const deactivateAccount = mutation({
 
 // Проверка статуса всех VPN-аккаунтов (для автоматического обновления)
 export const checkAccountsStatus = mutation({
+  returns: v.object({
+    expiredCount: v.number(),
+    upcomingExpiryCount: v.number()
+  }),
   handler: async (ctx) => {
     const now = Date.now();
+    const oneDayMs = 24 * 60 * 60 * 1000; // 1 день в миллисекундах
+    const threeDaysMs = 3 * oneDayMs; // 3 дня в миллисекундах
     
     // Получаем все активные аккаунты, срок которых истек
     const expiredAccounts = await ctx.db
@@ -236,13 +242,87 @@ export const checkAccountsStatus = mutation({
         status: "expired",
         lastUpdatedAt: now,
       });
+      
+      // Получаем пользователя для отправки уведомления
+      const user = await ctx.db.get(account.userId);
+      if (user) {
+        // Сохраняем уведомление в базе
+        await ctx.db.insert("notifications", {
+          userId: account.userId,
+          type: "vpn_expired",
+          subscriptionId: undefined,
+          message: `🚨 Ваш VPN-аккаунт истек. Продлите подписку, чтобы продолжить пользоваться сервисом.`,
+          isRead: false,
+          createdAt: now,
+        });
+        
+        // Отправка сообщения через action будет происходить в cron задаче
+      }
+    }
+    
+    // Находим аккаунты, которые истекут в ближайшее время (1-3 дня)
+    const upcomingExpiryAccounts = await ctx.db
+      .query("vpnAccounts")
+      .filter((q) => 
+        q.and(
+          q.eq(q.field("status"), "active"),
+          q.gt(q.field("expiresAt"), now),
+          q.lt(q.field("expiresAt"), now + threeDaysMs)
+        )
+      )
+      .collect();
+    
+    // Отправляем уведомления о скором истечении
+    for (const account of upcomingExpiryAccounts) {
+      const daysLeft = Math.ceil((account.expiresAt - now) / oneDayMs);
+      
+      // Получаем предыдущие уведомления для этого аккаунта
+      const existingNotification = await ctx.db
+        .query("notifications")
+        .withIndex("by_user_type", (q) => 
+          q.eq("userId", account.userId)
+          .eq("type", `vpn_expires_soon_${daysLeft}day`)
+        )
+        .order("desc")
+        .first();
+      
+      // Если уже отправляли уведомление за последние 12 часов, пропускаем
+      if (existingNotification && (now - existingNotification.createdAt < 12 * 60 * 60 * 1000)) {
+        continue;
+      }
+      
+      // Получаем пользователя для отправки уведомления
+      const user = await ctx.db.get(account.userId);
+      if (user) {
+        // Сохраняем уведомление в базе
+        await ctx.db.insert("notifications", {
+          userId: account.userId,
+          type: `vpn_expires_soon_${daysLeft}day`,
+          subscriptionId: undefined,
+          message: `⚠️ Ваш VPN-аккаунт истекает через ${daysLeft} ${getDayWord(daysLeft)}. Не забудьте продлить подписку!`,
+          isRead: false,
+          createdAt: now,
+        });
+        
+        // Отправка сообщения через action будет происходить в cron задаче
+      }
     }
     
     return {
       expiredCount: expiredAccounts.length,
+      upcomingExpiryCount: upcomingExpiryAccounts.length
     };
   },
 });
+
+// Вспомогательная функция для склонения слова "день"
+function getDayWord(days: number): string {
+  if (days >= 11 && days <= 19) return "дней";
+  const lastDigit = days % 10;
+  if (lastDigit === 1) return "день";
+  if (lastDigit >= 2 && lastDigit <= 4) return "дня";
+  return "дней";
+}
 
 // Удаление VPN-аккаунта из БД
 export const removeVpnAccount = mutation({

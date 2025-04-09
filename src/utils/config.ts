@@ -1,10 +1,8 @@
 import dotenv from 'dotenv';
 import { z } from 'zod';
 
-// Загружаем переменные окружения из .env.local файла
 dotenv.config({ path: '.env.local' });
 
-// Проверяем, что переменные загрузились, иначе пробуем загрузить из .env
 if (!process.env.BOT_TOKEN) {
   console.log('Переменные из .env.local не загружены, пробую загрузить из .env');
   dotenv.config();
@@ -38,7 +36,6 @@ const configSchema = z.object({
   SESSION_KEY: z.string().default('bot:session'),
 });
 
-// Функция для получения и валидации конфигурации
 const getConfig = () => {
   try {
     return configSchema.parse({
@@ -63,13 +60,10 @@ const getConfig = () => {
   }
 };
 
-// Экспортируем конфигурацию
 export const config = getConfig();
 
-// Экспортируем полезные константы
 export const isDev = config.NODE_ENV === 'development';
 export const isProd = config.NODE_ENV === 'production';
 export const isTest = config.NODE_ENV === 'test';
 
-// Экспортируем конфигурацию как значение по умолчанию
 export default config; 

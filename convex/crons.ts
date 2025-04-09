@@ -1,31 +1,83 @@
-// import { cronJobs } from "convex/server";
-// import { internalMutation } from "./_generated/server";
-// import { internal } from "./_generated/api";
+import { cronJobs } from "convex/server";
+import { internalAction } from "./_generated/server";
+import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { Doc, Id } from "./_generated/dataModel";
 
-// // Мутация для проверки статуса подписок (переопределение для использования в cron)
-// const checkSubscriptions = internalMutation({
-//   args: {},
-//   handler: async (ctx) => {
-//     return await ctx.runMutation(internal.userSubscriptions.checkSubscriptionStatuses);
-//   },
-// });
+type NotificationResult = {
+  processed: number;
+};
 
-// // Мутация для проверки статуса VPN-аккаунтов (переопределение для использования в cron)
-// const checkVpnAccounts = internalMutation({
-//   args: {},
-//   handler: async (ctx) => {
-//     return await ctx.runMutation(internal.vpnAccounts.checkAccountsStatus);
-//   },
-// });
+type VpnAccountCheckResult = any; // Уточните тип в соответствии с тем, что возвращает vpnAccounts.checkAccountsStatus
 
-// // Определение cron задач
-// const crons = cronJobs();
+// Действие для проверки статуса подписок
+export const checkAndNotifySubscriptions = internalAction({
+  args: {},
+  returns: v.object({ processed: v.number() }),
+  handler: async (ctx): Promise<NotificationResult> => {
+    // Запускаем мутацию для проверки статуса подписок
+    // @ts-ignore - возникает из-за ограничений типизации в crоns файлах
+    const result = await ctx.runMutation(internal.userSubscriptions.checkSubscriptionStatuses);
+    console.log("Проверка подписок выполнена:", result);
+    
+    // Получаем все непрочитанные уведомления
+    // @ts-ignore - возникает из-за ограничений типизации в crоns файлах
+    const notifications = await ctx.runQuery(internal.notifications.getUnsentNotifications);
+    
+    // Отправляем каждое уведомление пользователю
+    for (const notification of notifications) {
+      try {
+        // Получаем информацию о пользователе
+        // @ts-ignore - возникает из-за ограничений типизации в crоns файлах
+        const user = await ctx.runQuery(internal.users.getUserById, { 
+          userId: notification.userId 
+        });
+        
+        if (user && user.telegramId) {
+          // Отправляем уведомление через Telegram
+          // @ts-ignore - возникает из-за ограничений типизации в crоns файлах
+          await ctx.runAction(internal.notifications.sendNotification, {
+            telegramId: user.telegramId,
+            message: notification.message
+          });
+          console.log("Уведомление отправлено:", notification.message);
+          console.log("Пользователь:", user.telegramId);
+          // Помечаем уведомление как прочитанное
+          // @ts-ignore - возникает из-за ограничений типизации в crоns файлах
+          await ctx.runMutation(internal.notifications.markAsSent, {
+            notificationId: notification._id
+          });
+        }
+      } catch (error) {
+        console.error(`Ошибка при отправке уведомления ${notification._id}:`, error);
+      }
+    }
+    
+    return { processed: notifications.length };
+  },
+});
 
-// // Запуск проверки подписок каждый час
-// crons.interval("check-subscriptions", { hours: 1 }, internal.crons.checkSubscriptions);
+// Действие для проверки статуса VPN-аккаунтов
+export const checkAndNotifyVpnAccounts = internalAction({
+  args: {},
+  returns: v.any(),
+  handler: async (ctx): Promise<VpnAccountCheckResult> => {
+    // Запускаем мутацию для проверки статуса VPN-аккаунтов
+    // @ts-ignore - возникает из-за ограничений типизации в crоns файлах
+    const result = await ctx.runMutation(internal.vpnAccounts.checkAccountsStatus);
+    console.log("Проверка VPN-аккаунтов выполнена:", result);
+    return result;
+  },
+});
 
-// // Запуск проверки VPN-аккаунтов каждый час
-// crons.interval("check-vpn-accounts", { hours: 1 }, internal.crons.checkVpnAccounts);
+// Определение cron задач
+const crons = cronJobs();
 
-// // Экспортируем cron задачи
-// export default crons; 
+// Запуск проверки подписок каждый час
+crons.interval("Check and notify subscriptions", { hours: 1 }, internal.crons.checkAndNotifySubscriptions);
+
+// Запуск проверки VPN-аккаунтов каждый час
+crons.interval("Check and notify VPN accounts", { hours: 1 }, internal.crons.checkAndNotifyVpnAccounts);
+
+// Экспортируем cron задачи
+export default crons; 
