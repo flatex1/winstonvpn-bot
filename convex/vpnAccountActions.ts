@@ -408,13 +408,68 @@ export const createVpnAccount = action({
       const clientId = crypto.randomUUID();
       console.log("Сгенерирован UUID для клиента:", clientId);
       
+      // Получаем параметры Reality из настроек inbound, если они есть
+      let realitySettings: any = null;
+      let publicKey = "";
+      let fingerprint = "chrome";
+      let serverName = "yahoo.com";
+      let shortId = "";
+      let spiderX = "/";
+      
+      try {
+        if (targetInbound.streamSettings) {
+          const streamSettings = typeof targetInbound.streamSettings === 'string' 
+            ? JSON.parse(targetInbound.streamSettings) 
+            : targetInbound.streamSettings;
+            
+          if (streamSettings.security === "reality" && streamSettings.realitySettings) {
+            realitySettings = streamSettings.realitySettings;
+            
+            // Получаем параметры Reality
+            if (realitySettings.settings && realitySettings.settings.publicKey) {
+              publicKey = realitySettings.settings.publicKey;
+            }
+            
+            if (realitySettings.settings && realitySettings.settings.fingerprint) {
+              fingerprint = realitySettings.settings.fingerprint;
+            }
+            
+            if (realitySettings.serverNames && realitySettings.serverNames.length > 0) {
+              serverName = realitySettings.serverNames[0];
+            }
+            
+            if (realitySettings.shortIds && realitySettings.shortIds.length > 0) {
+              shortId = realitySettings.shortIds[0];
+            }
+            
+            if (realitySettings.settings && realitySettings.settings.spiderX) {
+              spiderX = realitySettings.settings.spiderX;
+            }
+            
+            console.log("Получены настройки Reality:", {
+              publicKey,
+              fingerprint,
+              serverName,
+              shortId,
+              spiderX
+            });
+          }
+        }
+      } catch (error) {
+        console.log("Ошибка при получении настроек Reality:", error);
+      }
+      
+      // Преобразуем ГБ в байты
+      const trafficLimitBytes = subscription.plan.trafficGB * 1024 * 1024 * 1024;
+      console.log(`Установка лимита трафика: ${subscription.plan.trafficGB} ГБ (${trafficLimitBytes} байт)`);
+      
       const clientSettings = {
         clients: [{
-          id: clientId, // Используем сгенерированный UUID вместо пустой строки
-          flow: "",
+          id: clientId,
+          flow: "xtls-rprx-vision",
           email: email,
           limitIp: 0,
-          totalGB: subscription.plan.trafficGB,
+          totalGB: trafficLimitBytes,
           expiryTime: subscription.expiresAt,
           enable: true,
           tgId: user.telegramId.toString(),
@@ -535,6 +590,17 @@ export const createVpnAccount = action({
           params.append('type', networkType);
           params.append('encryption', 'none');
           
+          // Добавляем параметры Reality, если они существуют
+          if (realitySettings) {
+            params.append('security', 'reality');
+            params.append('pbk', publicKey);
+            params.append('fp', fingerprint);
+            params.append('sni', serverName);
+            params.append('sid', shortId);
+            params.append('spx', spiderX);
+            params.append('flow', 'xtls-rprx-vision');
+          }
+          
           connectionDetails = `vless://${clientId}@${serverAddress}:${port}?${params.toString()}#${encodeURIComponent(email)}`;
         } else if (protocol === 'trojan') {
           const params = new URLSearchParams();
@@ -556,7 +622,7 @@ export const createVpnAccount = action({
         clientId: clientId,
         email,
         expiresAt: subscription.expiresAt,
-        trafficLimit: subscription.plan.trafficGB * 1024 * 1024 * 1024,
+        trafficLimit: trafficLimitBytes,
         trafficUsed: 0,
         status: "active",
         connectionDetails,
