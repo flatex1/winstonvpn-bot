@@ -1,0 +1,38 @@
+{
+  "name": "winstonvpn-bot",
+  "version": "1.0.0",
+  "description": "Telegram бот для продажи VPN подписок с интеграцией 3x-ui",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "concurrently \"npx convex dev\" \"ts-node-dev --respawn src/index.ts\"",
+    "start": "npx convex deploy && ts-node src/index.ts",
+    "build": "tsc",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "vpn",
+    "3x-ui",
+    "convex"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@grammyjs/conversations": "^1.2.0",
+    "@grammyjs/menu": "^1.2.1",
+    "@grammyjs/router": "^2.0.0",
+    "axios": "^1.6.2",
+    "convex": "^1.6.3",
+    "dotenv": "^16.3.1",
+    "grammy": "^1.20.2",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "concurrently": "^8.2.2",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.3.3"
+  }
+}
