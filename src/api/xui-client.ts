@@ -45,13 +45,11 @@ export class XuiClient {
       timeout: 10000,
     });
     
-    // Добавляем перехватчик запросов для логирования
     this.axios.interceptors.request.use((config) => {
       logger.apiRequest(config.method?.toUpperCase() || "UNKNOWN", config.url || "unknown", config.data);
       return config;
     });
     
-    // Добавляем перехватчик ответов для логирования
     this.axios.interceptors.response.use(
       (response) => {
         logger.apiResponse(
@@ -146,7 +144,6 @@ export class XuiClient {
         this.token = null;
         const headers = await this.getHeaders();
         
-        // Повторяем запрос с новым токеном
         let response;
         if (method === "get") {
           response = await this.axios.get<ApiResponse<T>>(url, headers);
@@ -249,7 +246,6 @@ export class XuiClient {
    * Обновление данных клиента
    */
   async updateClient(inboundId: number, client: UpdateClientRequest): Promise<boolean> {
-    // Форматируем данные согласно требованиям API
     const data = {
       id: inboundId,
       settings: JSON.stringify({
@@ -270,10 +266,8 @@ export class XuiClient {
    * Получение ссылки для настройки клиента
    */
   async getClientConfigLinks(inboundId: number, clientId: string): Promise<ConfigLinkResponse> {
-    // Получаем информацию об inbound
     const inbound = await this.getInbound(inboundId);
     
-    // Парсим настройки inbound и находим клиента
     const settings = JSON.parse(inbound.settings);
     const client = settings.clients.find((c: Client) => c.id === clientId);
     
@@ -281,39 +275,16 @@ export class XuiClient {
       throw new Error("Клиент не найден");
     }
     
-    // Получаем базовый URL сервера из API URL
     const url = new URL(this.apiUrl);
     const serverAddress = url.hostname;
     
     // Формируем ответ с разными типами конфигураций
     const response: ConfigLinkResponse = {};
     
-    // Парсим настройки потоков
     const streamSettings = JSON.parse(inbound.streamSettings);
     const network = streamSettings.network || 'tcp';
     const security = streamSettings.security || 'none';
     
-    // VMess конфигурация
-    if (inbound.protocol === 'vmess') {
-      const vmessConfig = {
-        v: '2',
-        ps: client.email,
-        add: serverAddress,
-        port: inbound.port,
-        id: client.id,
-        aid: client.alterId || 0,
-        net: network,
-        type: streamSettings.tcpSettings?.header?.type || 'none',
-        host: streamSettings.wsSettings?.headers?.Host || '',
-        path: streamSettings.wsSettings?.path || streamSettings.tcpSettings?.header?.request?.path || '',
-        tls: security === 'tls' ? 'tls' : '',
-        sni: streamSettings.tlsSettings?.serverName || '',
-      };
-      
-      response.vmessLink = `vmess://${Buffer.from(JSON.stringify(vmessConfig)).toString('base64')}`;
-    }
-    
-    // VLESS конфигурация
     if (inbound.protocol === 'vless') {
       const flow = client.flow || '';
       const params = new URLSearchParams();
@@ -339,7 +310,6 @@ export class XuiClient {
       response.vlessLink = `vless://${client.id}@${serverAddress}:${inbound.port}?${params.toString()}#${encodeURIComponent(client.email)}`;
     }
     
-    // Trojan конфигурация
     if (inbound.protocol === 'trojan') {
       const params = new URLSearchParams();
       
@@ -367,5 +337,4 @@ export class XuiClient {
   }
 }
 
-// Экспортируем класс
 export default XuiClient; 

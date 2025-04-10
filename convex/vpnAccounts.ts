@@ -143,13 +143,14 @@ export const extendVpnAccount = mutation({
   },
 });
 
-// Реактивация отключенного VPN-аккаунта
+// Реактивация VPN-аккаунта (для продления или смены тарифа)
 export const reactivateVpnAccount = mutation({
   args: {
     accountId: v.id("vpnAccounts"),
     expiresAt: v.number(),
     trafficLimit: v.number(),
   },
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const account = await ctx.db.get(args.accountId);
     
@@ -157,16 +158,15 @@ export const reactivateVpnAccount = mutation({
       throw new Error("VPN-аккаунт не найден");
     }
     
-    // Обновляем аккаунт в нашей базе
     await ctx.db.patch(args.accountId, {
+      status: "active",
       expiresAt: args.expiresAt,
       trafficLimit: args.trafficLimit,
-      trafficUsed: 0, // Сбрасываем счетчик трафика
-      status: "active",
+      // Не сбрасываем trafficUsed, чтобы не обнулять статистику
       lastUpdatedAt: Date.now(),
     });
     
-    return await ctx.db.get(args.accountId);
+    return true;
   },
 });
 
@@ -205,8 +205,12 @@ export const deactivateAccount = mutation({
       throw new Error("VPN-аккаунт не найден");
     }
     
+    // Просто обновляем статус и время последнего обновления
+    // но не блокируем аккаунт полностью, чтобы пользователь мог продлить или сменить тариф
+    const newStatus = args.reason === "manual" ? "blocked" : "inactive";
+    
     await ctx.db.patch(args.accountId, {
-      status: "blocked",
+      status: newStatus, // Используем "inactive" вместо "blocked" для expired и traffic_limit_exceeded
       lastUpdatedAt: Date.now(),
     });
     
@@ -218,7 +222,8 @@ export const deactivateAccount = mutation({
 export const checkAccountsStatus = mutation({
   returns: v.object({
     expiredCount: v.number(),
-    upcomingExpiryCount: v.number()
+    upcomingExpiryCount: v.number(),
+    trafficLimitExceededCount: v.number()
   }),
   handler: async (ctx) => {
     const now = Date.now();
@@ -239,7 +244,7 @@ export const checkAccountsStatus = mutation({
     // Обновляем статус на "expired"
     for (const account of expiredAccounts) {
       await ctx.db.patch(account._id, {
-        status: "expired",
+        status: "inactive", // Используем "inactive" вместо "expired" для возможности продления
         lastUpdatedAt: now,
       });
       
@@ -254,9 +259,43 @@ export const checkAccountsStatus = mutation({
           message: `🚨 Ваш VPN-аккаунт истек. Продлите подписку, чтобы продолжить пользоваться сервисом.`,
           isRead: false,
           createdAt: now,
+          isSent: false
+        });
+      }
+    }
+    
+    // Проверяем аккаунты на превышение лимита трафика
+    const activeAccounts = await ctx.db
+      .query("vpnAccounts")
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+      
+    // Список аккаунтов с превышенным лимитом трафика
+    const trafficLimitExceededAccounts = [];
+    
+    for (const account of activeAccounts) {
+      // Проверяем, превышен ли лимит трафика
+      if (account.trafficUsed >= account.trafficLimit) {
+        // Деактивируем аккаунт
+        await ctx.db.patch(account._id, {
+          status: "inactive", // Используем "inactive" вместо "blocked" для возможности продления
+          lastUpdatedAt: now,
         });
         
-        // Отправка сообщения через action будет происходить в cron задаче
+        trafficLimitExceededAccounts.push(account);
+        
+        // Создаем уведомление о превышении лимита трафика
+        const user = await ctx.db.get(account.userId);
+        if (user) {
+          await ctx.db.insert("notifications", {
+            userId: account.userId,
+            type: "traffic_limit_exceeded",
+            message: "⚠️ Вы израсходовали весь доступный трафик. Пожалуйста, продлите текущий тариф или выберите новый с помощью команды /tariffs.",
+            isRead: false,
+            createdAt: now,
+            isSent: false
+          });
+        }
       }
     }
     
@@ -302,15 +341,15 @@ export const checkAccountsStatus = mutation({
           message: `⚠️ Ваш VPN-аккаунт истекает через ${daysLeft} ${getDayWord(daysLeft)}. Не забудьте продлить подписку!`,
           isRead: false,
           createdAt: now,
+          isSent: false
         });
-        
-        // Отправка сообщения через action будет происходить в cron задаче
       }
     }
     
     return {
       expiredCount: expiredAccounts.length,
-      upcomingExpiryCount: upcomingExpiryAccounts.length
+      upcomingExpiryCount: upcomingExpiryAccounts.length,
+      trafficLimitExceededCount: trafficLimitExceededAccounts.length
     };
   },
 });

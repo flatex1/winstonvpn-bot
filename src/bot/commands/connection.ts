@@ -1,17 +1,17 @@
 import { Composer } from "grammy";
 import { createLogger } from "../../utils/logger";
 import vpnService from "../../services/vpn-service";
-import { viewConnectionKeyboard } from "../keyboards";
+import { viewConnectionKeyboard, instructionsKeyboard } from "../keyboards";
 
 const logger = createLogger("command:connection");
 
 const composer = new Composer();
 
-composer.command("connection", async (ctx) => {
+async function sendConnectionDetails(ctx: any, source: string) {
   try {
     const telegramId = ctx.from?.id.toString();
     
-    logger.info(`Пользователь ${telegramId} запросил данные для подключения`);
+    logger.info(`Пользователь ${telegramId} запросил данные для подключения через ${source}`);
     
     const message = await vpnService.getConnectionDetails(telegramId!);
     
@@ -20,28 +20,19 @@ composer.command("connection", async (ctx) => {
       reply_markup: viewConnectionKeyboard,
     });
   } catch (error) {
-    logger.error("Ошибка в обработчике команды /connection", error);
+    logger.error(`Ошибка при получении данных для подключения (${source})`, error);
     await ctx.reply("Произошла ошибка. Пожалуйста, попробуйте еще раз.");
   }
+}
+
+// Обработчик команды /connection
+composer.command("connection", async (ctx) => {
+  await sendConnectionDetails(ctx, "команду");
 });
 
-// Обработчик текстового сообщения "🔑 Данные для подключения"
+// Обработчик кнопки "🔑 Данные для подключения"
 composer.hears("🔑 Данные для подключения", async (ctx) => {
-  try {
-    const telegramId = ctx.from?.id.toString();
-    
-    logger.info(`Пользователь ${telegramId} запросил данные для подключения через меню`);
-    
-    const message = await vpnService.getConnectionDetails(telegramId!);
-    
-    await ctx.reply(message, {
-      parse_mode: "Markdown",
-      reply_markup: viewConnectionKeyboard,
-    });
-  } catch (error) {
-    logger.error("Ошибка в обработчике кнопки 'Данные для подключения'", error);
-    await ctx.reply("Произошла ошибка. Пожалуйста, попробуйте еще раз.");
-  }
+  await sendConnectionDetails(ctx, "кнопку меню");
 });
 
 // Обработчик callback запроса "refresh_connection"
@@ -66,6 +57,30 @@ composer.callbackQuery("refresh_connection", async (ctx) => {
     
     await ctx.answerCallbackQuery({
       text: "Произошла ошибка при обновлении данных",
+      show_alert: true,
+    });
+  }
+});
+
+// Обработчик кнопки "📱 Инструкция по подключению"
+composer.callbackQuery("show_instructions", async (ctx) => {
+  try {
+    const telegramId = ctx.from.id.toString();
+    
+    logger.info(`Пользователь ${telegramId} запросил инструкцию по подключению`);
+    
+    await ctx.editMessageText(
+      "Выберите вашу операционную систему для получения инструкции по подключению:",
+      {
+        reply_markup: instructionsKeyboard,
+      }
+    );
+    
+    await ctx.answerCallbackQuery();
+  } catch (error) {
+    logger.error("Ошибка при показе меню инструкций", error);
+    await ctx.answerCallbackQuery({
+      text: "Произошла ошибка. Попробуйте позже.",
       show_alert: true,
     });
   }

@@ -9,47 +9,8 @@ const logger = createLogger("command:tariffs");
 
 const composer = new Composer();
 
-composer.command("tariffs", async (ctx) => {
-  try {
-    const telegramId = ctx.from?.id.toString();
-    
-    logger.info(`Пользователь ${telegramId} запросил список тарифов`);
-    
-    const tariffs = await convexClient.getActivePlans();
-    
-    if (!tariffs || tariffs.length === 0) {
-      await ctx.reply("В данный момент нет доступных тарифов. Пожалуйста, попробуйте позже.");
-      return;
-    }
-    
-    const keyboard = createTariffsKeyboard(tariffs);
-    
-    await ctx.reply(
-      `📝 *Выберите тариф VPN*
-
-У нас представлены следующие тарифы VPN для доступа к сервису:
-
-${tariffs.map(tariff => 
-  `*${tariff.name}*
-  • Трафик: ${tariff.trafficGB} ГБ
-  • Период: ${tariff.durationDays} дней
-  • Описание: ${tariff.description}
-  `).join("\n")}
-
-Выберите подходящий тариф:`,
-      {
-        parse_mode: "Markdown",
-        reply_markup: keyboard,
-      }
-    );
-  } catch (error) {
-    logger.error("Ошибка в обработчике команды /tariffs", error);
-    await ctx.reply("Произошла ошибка. Пожалуйста, попробуйте еще раз.");
-  }
-});
-
-// Обработчик текстового сообщения "📝 Выбрать тариф"
-composer.hears("📝 Выбрать тариф", async (ctx) => {
+// Обработчик текстового сообщения "📝 Тарифы"
+composer.hears("📝 Тарифы", async (ctx) => {
   try {
     const telegramId = ctx.from?.id.toString();
     
@@ -68,9 +29,7 @@ composer.hears("📝 Выбрать тариф", async (ctx) => {
     
     // Отправляем сообщение со списком тарифов
     await ctx.reply(
-      `📝 *Выберите тариф VPN*
-
-У нас представлены следующие тарифы VPN для доступа к сервису:
+      `📝 *Доступные тарифы*
 
 ${tariffs.map(tariff => 
   `*${tariff.name}*
@@ -86,7 +45,7 @@ ${tariffs.map(tariff =>
       }
     );
   } catch (error) {
-    logger.error("Ошибка в обработчике кнопки 'Выбрать тариф'", error);
+    logger.error("Ошибка в обработчике кнопки 'Тарифы'", error);
     await ctx.reply("Произошла ошибка. Пожалуйста, попробуйте еще раз.");
   }
 });
@@ -150,10 +109,46 @@ composer.callbackQuery(/^confirm_tariff:(.+)$/, async (ctx) => {
     logger.info(`Пользователь ${telegramId} подтвердил выбор тарифа ${tariffId}`);
     
     await ctx.answerCallbackQuery({
-      text: "Создаем VPN-аккаунт...",
+      text: "Обрабатываем запрос...",
     });
     
-    const result = await vpnService.createUserVpnAccount(telegramId, tariffId);
+    // Получаем пользователя
+    const user = await convexClient.getUserByTelegramId(telegramId);
+    if (!user) {
+      await ctx.editMessageText("Ошибка: пользователь не найден. Пожалуйста, свяжитесь с администратором.");
+      return;
+    }
+    
+    // Проверяем, есть ли у пользователя VPN-аккаунт
+    const vpnAccount = await convexClient.getUserVpnAccount(user._id);
+    const existingSubscription = await convexClient.getSubscription(user._id);
+    
+    let result;
+    
+    if (vpnAccount && existingSubscription) {
+      // Если у пользователя уже есть VPN-аккаунт и подписка
+      
+      if (vpnAccount.status === "active") {
+        // Если аккаунт активен, предлагаем сначала дождаться окончания текущей подписки
+        result = "У вас уже есть активная подписка. Дождитесь окончания текущей подписки или израсходования трафика, чтобы выбрать новый тариф.";
+      } else {
+        // Если аккаунт неактивен (истек срок или закончился трафик), продлеваем или меняем тариф
+        
+        // Проверяем, тот же ли это тариф или новый
+        const isSamePlan = existingSubscription.planId === tariffId;
+        
+        if (isSamePlan) {
+          // Продление текущего тарифа
+          result = await vpnService.extendSubscription(telegramId, tariffId);
+        } else {
+          // Смена тарифа
+          result = await vpnService.changeSubscriptionPlan(telegramId, tariffId);
+        }
+      }
+    } else {
+      // Если у пользователя нет VPN-аккаунта или подписки, создаем новые
+      result = await vpnService.createUserVpnAccount(telegramId, tariffId);
+    }
     
     await ctx.editMessageText(result, {
       parse_mode: "Markdown",
@@ -167,17 +162,17 @@ composer.callbackQuery(/^confirm_tariff:(.+)$/, async (ctx) => {
     });
     
     await ctx.editMessageText(
-      "Произошла ошибка при создании VPN-аккаунта. Пожалуйста, попробуйте позже или обратитесь в поддержку."
+      "Произошла ошибка при создании или обновлении VPN-аккаунта. Пожалуйста, попробуйте позже или обратитесь в поддержку."
     );
   }
 });
 
-// Обработчик callback запроса "cancel_tariff"
-composer.callbackQuery("cancel_tariff", async (ctx) => {
+// Обработчик callback запроса "back_to_menu" для тарифов
+composer.callbackQuery("back_to_menu", async (ctx) => {
   try {
     const telegramId = ctx.from.id.toString();
     
-    logger.info(`Пользователь ${telegramId} отменил выбор тарифа`);
+    logger.info(`Пользователь ${telegramId} вернулся в главное меню из тарифов`);
     
     // Получаем список активных тарифов для возврата к списку
     const tariffs = await convexClient.getActivePlans();
@@ -193,16 +188,14 @@ composer.callbackQuery("cancel_tariff", async (ctx) => {
     await ctx.editMessageText(
       `📝 *Выберите тариф VPN*
 
-Выбор отменен. Вы можете выбрать другой тариф:
+Выберите подходящий тариф:
 
 ${tariffs.map(tariff => 
   `*${tariff.name}*
   • Трафик: ${tariff.trafficGB} ГБ
   • Период: ${tariff.durationDays} дней
   • Описание: ${tariff.description}
-  `).join("\n")}
-
-Выберите подходящий тариф:`,
+  `).join("\n")}`,
       {
         parse_mode: "Markdown",
         reply_markup: keyboard,
@@ -211,10 +204,9 @@ ${tariffs.map(tariff =>
     
     await ctx.answerCallbackQuery();
   } catch (error) {
-    logger.error("Ошибка в обработчике callback 'cancel_tariff'", error);
-    
+    logger.error("Ошибка при возврате к списку тарифов", error);
     await ctx.answerCallbackQuery({
-      text: "Произошла ошибка при отмене выбора",
+      text: "Произошла ошибка. Попробуйте позже.",
       show_alert: true,
     });
   }

@@ -295,6 +295,105 @@ export class ConvexClient {
       email,
     });
   }
+
+  /**
+   * Обновление статистики VPN-аккаунта (получение текущего статуса)
+   * @param accountId ID VPN-аккаунта
+   * @returns Обновленный VPN-аккаунт
+   */
+  async updateVpnAccountStats(accountId: Id<"vpnAccounts">): Promise<any> {
+    try {
+      // Сначала получаем аккаунт для получения email
+      const account = await this.query(api.vpnAccounts.getVpnAccountById, { accountId });
+      if (!account || !account.email) {
+        throw new Error("VPN-аккаунт не найден или отсутствует email");
+      }
+      
+      // Используем существующую функцию updateTrafficUsage
+      return await this.action(api.vpnAccountActions.updateTrafficUsage, {
+        email: account.email
+      });
+    } catch (error) {
+      logger.error("Ошибка обновления статистики VPN-аккаунта", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Получает подписку пользователя (активную или нет)
+   * @param userId ID пользователя
+   * @returns Подписка пользователя или null
+   */
+  async getSubscription(userId: Id<"users">): Promise<any> {
+    try {
+      const result = await this.query(api.userSubscriptions.getUserSubscription, {
+        userId
+      });
+      return result;
+    } catch (error) {
+      logger.error("Ошибка получения подписки пользователя", error);
+      return null;
+    }
+  }
+
+  /**
+   * Продление подписки
+   * @param subscriptionId ID подписки
+   * @param planId ID тарифа
+   * @returns true в случае успеха
+   */
+  async extendSubscription(subscriptionId: Id<"userSubscriptions">, planId: Id<"subscriptionPlans">): Promise<boolean> {
+    try {
+      const result = await this.mutation(api.userSubscriptions.extendSubscription, {
+        subscriptionId,
+        planId
+      });
+      return result;
+    } catch (error) {
+      logger.error("Ошибка продления подписки", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Изменение тарифа подписки
+   * @param subscriptionId ID подписки
+   * @param newPlanId ID нового тарифа
+   * @returns true в случае успеха
+   */
+  async changePlan(subscriptionId: Id<"userSubscriptions">, newPlanId: Id<"subscriptionPlans">): Promise<boolean> {
+    try {
+      const result = await this.mutation(api.userSubscriptions.changePlan, {
+        subscriptionId,
+        newPlanId
+      });
+      return result;
+    } catch (error) {
+      logger.error("Ошибка изменения тарифа", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Реактивация VPN-аккаунта
+   * @param accountId ID VPN-аккаунта
+   * @param expiresAt Новое время истечения
+   * @param trafficLimit Новый лимит трафика
+   * @returns true в случае успеха
+   */
+  async reactivateVpnAccount(accountId: Id<"vpnAccounts">, expiresAt: number, trafficLimit: number): Promise<boolean> {
+    try {
+      const result = await this.mutation(api.vpnAccounts.reactivateVpnAccount, {
+        accountId,
+        expiresAt,
+        trafficLimit
+      });
+      return result;
+    } catch (error) {
+      logger.error("Ошибка реактивации VPN-аккаунта", error);
+      throw error;
+    }
+  }
 }
 
 export const convexClient = new ConvexClient();

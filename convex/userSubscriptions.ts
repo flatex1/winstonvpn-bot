@@ -98,31 +98,71 @@ export const createFreeSubscription = mutation({
   },
 });
 
-// Продление подписки
+// Продление подписки на новый срок
 export const extendSubscription = mutation({
   args: {
     subscriptionId: v.id("userSubscriptions"),
-    durationDays: v.number(),
+    planId: v.id("subscriptionPlans"),
   },
+  returns: v.boolean(),
   handler: async (ctx, args) => {
     const subscription = await ctx.db.get(args.subscriptionId);
+    
     if (!subscription) {
       throw new Error("Подписка не найдена");
     }
     
-    // Расчет нового времени истечения
-    const expiresAt = Math.max(
-      subscription.expiresAt,
-      Date.now()
-    ) + args.durationDays * 24 * 60 * 60 * 1000;
+    const plan = await ctx.db.get(args.planId);
+    if (!plan) {
+      throw new Error("Тариф не найден");
+    }
     
+    const now = Date.now();
+    const newExpiryDate = now + (plan.durationDays * 24 * 60 * 60 * 1000); // Новая дата истечения от текущего момента
+    
+    // Обновляем подписку
     await ctx.db.patch(args.subscriptionId, {
-      expiresAt,
-      status: "active",
-      lastUpdatedAt: Date.now(),
+      planId: args.planId,
+      status: "active", // Активируем подписку если она была неактивной
+      expiresAt: newExpiryDate,
+      lastUpdatedAt: now,
     });
     
-    return await ctx.db.get(args.subscriptionId);
+    return true;
+  },
+});
+
+// Изменение тарифа подписки
+export const changePlan = mutation({
+  args: {
+    subscriptionId: v.id("userSubscriptions"),
+    newPlanId: v.id("subscriptionPlans"),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const subscription = await ctx.db.get(args.subscriptionId);
+    
+    if (!subscription) {
+      throw new Error("Подписка не найдена");
+    }
+    
+    const newPlan = await ctx.db.get(args.newPlanId);
+    if (!newPlan) {
+      throw new Error("Тариф не найден");
+    }
+    
+    const now = Date.now();
+    const newExpiryDate = now + (newPlan.durationDays * 24 * 60 * 60 * 1000); // Новая дата истечения
+    
+    // Обновляем подписку на новый тариф
+    await ctx.db.patch(args.subscriptionId, {
+      planId: args.newPlanId,
+      status: "active", // Активируем подписку если она была неактивной
+      expiresAt: newExpiryDate,
+      lastUpdatedAt: now,
+    });
+    
+    return true;
   },
 });
 
@@ -212,6 +252,33 @@ export const checkSubscriptionStatuses = mutation({
       expiresInOneDayCount: expiresInOneDaySubscriptions.length,
       expiresInThreeDaysCount: expiresInThreeDaysSubscriptions.length
     };
+  },
+});
+
+// Получение подписки пользователя (активной или нет)
+export const getUserSubscription = query({
+  args: {
+    userId: v.id("users"),
+  },
+  handler: async (ctx, args) => {
+    const subscription = await ctx.db
+      .query("userSubscriptions")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .order("desc") // Самая последняя подписка
+      .first();
+    
+    if (!subscription) {
+      return null;
+    }
+    
+    // Получаем информацию о тарифе
+    const plan = await ctx.db.get(subscription.planId);
+    
+    if (!plan) {
+      return null;
+    }
+    
+    return { ...subscription, plan };
   },
 });
 

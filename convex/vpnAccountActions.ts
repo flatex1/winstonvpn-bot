@@ -3,7 +3,7 @@
 import { v } from "convex/values";
 import { action } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
-import { api } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { Doc } from "./_generated/dataModel";
 
 // Импортируем правильные типы для HTTP клиента
@@ -296,11 +296,20 @@ export const createVpnAccount = action({
         }) as VpnAccount;
       } else {
         // Если аккаунт не активен, реактивируем его
-        return await ctx.runMutation(api.vpnAccounts.reactivateVpnAccount, {
+        const reactivated = await ctx.runMutation(api.vpnAccounts.reactivateVpnAccount, {
           accountId: existingAccount._id,
           expiresAt: subscription.expiresAt,
           trafficLimit: subscription.plan.trafficGB * 1024 * 1024 * 1024, // в байтах
-        }) as VpnAccount;
+        });
+        
+        if (reactivated) {
+          // Получаем обновленные данные аккаунта
+          return await ctx.runQuery(api.vpnAccounts.getVpnAccountById, {
+            accountId: existingAccount._id
+          }) as VpnAccount;
+        } else {
+          throw new Error("Не удалось реактивировать VPN аккаунт");
+        }
       }
     }
 
@@ -803,7 +812,7 @@ export const updateTrafficUsage = action({
           if (inbound.clientStats && Array.isArray(inbound.clientStats)) {
             console.log(`Найдено ${inbound.clientStats.length} записей статистики клиентов`);
             
-            // Выведем все email'ы для отладки
+            // Выведем все email
             const clientEmails = inbound.clientStats.map((stat: any) => stat.email);
             console.log("Доступные email в статистике:", clientEmails);
             
@@ -832,28 +841,17 @@ export const updateTrafficUsage = action({
         console.log(`Не удалось найти статистику клиента ${args.email}, используем текущее значение`);
         trafficUsed = account.trafficUsed;
         
-        // Для тестирования можно добавить немного трафика, чтобы видеть изменения
-        // trafficUsed += 1024 * 1024 * 10; // +10 MB для теста
       }
       
-      // Обновляем статистику в нашей базе
       await ctx.runMutation(api.vpnAccounts.updateAccountTraffic, {
         accountId: account._id,
         trafficUsed: trafficUsed,
       });
       
-      // Проверяем лимиты трафика
       const updatedAccount = await ctx.runQuery(api.vpnAccounts.getVpnAccountById, {
         accountId: account._id,
       }) as VpnAccount | null;
       
-      // Если превышен лимит трафика, отключаем аккаунт
-      if (updatedAccount && updatedAccount.trafficUsed >= updatedAccount.trafficLimit) {
-        await ctx.runMutation(api.vpnAccounts.deactivateAccount, {
-          accountId: account._id,
-          reason: "traffic_limit_exceeded",
-        });
-      }
       
       return updatedAccount;
     } catch (error) {

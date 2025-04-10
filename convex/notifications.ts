@@ -157,4 +157,31 @@ export const sendNotification = action({
       };
     }
   },
+});
+
+// Добавление нового уведомления
+export const addNotification = mutation({
+  args: {
+    userId: v.id("users"),
+    type: v.string(),
+    message: v.string(),
+    isRead: v.boolean(),
+    subscriptionId: v.optional(v.id("userSubscriptions")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    
+    // Сохраняем уведомление в базе данных
+    const notificationId = await ctx.db.insert("notifications", {
+      userId: args.userId,
+      type: args.type,
+      subscriptionId: args.subscriptionId,
+      message: args.message,
+      isRead: args.isRead,
+      createdAt: now,
+      isSent: false // По умолчанию уведомление не отправлено
+    });
+    
+    return notificationId;
+  },
 }); 

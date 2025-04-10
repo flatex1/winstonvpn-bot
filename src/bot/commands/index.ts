@@ -1,17 +1,17 @@
 import { Composer } from "grammy";
 import { MyContext } from "../bot";
 import startCommand from "./start";
-import subscriptionCommand from "./subscription";
-import connectionCommand from "./connection";
+import profileCommand from "./profile";
 import tariffsCommand from "./tariffs";
-import helpCommand from "./help";
+import connectionCommand from "./connection";
+import instructionsCommand from "./instructions";
 
 const composer = new Composer<MyContext>();
 
 composer.use(startCommand);
-composer.use(subscriptionCommand);
-composer.use(connectionCommand);
+composer.use(profileCommand);
 composer.use(tariffsCommand);
-composer.use(helpCommand);
+composer.use(connectionCommand);
+composer.use(instructionsCommand);
 
 export default composer; 

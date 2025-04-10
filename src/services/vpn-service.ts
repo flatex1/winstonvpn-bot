@@ -3,6 +3,7 @@ import { createLogger } from "../utils/logger";
 import config from "../utils/config";
 import convexClient from "./convex-client";
 import { Id } from "../../convex/_generated/dataModel";
+import { api } from "../../convex/_generated/api";
 
 // Создаем логгер для VPN сервиса
 const logger = createLogger("vpn-service");
@@ -113,31 +114,21 @@ export class VpnService {
         return "Пользователь не найден";
       }
 
+      // Получаем подписку пользователя
+      const subscription = await convexClient.getActiveSubscription(user._id) as ConvexSubscription;
+      if (!subscription) {
+        return "У вас нет активной подписки.";
+      }
+
       // Получаем VPN-аккаунт пользователя
       const vpnAccount = await convexClient.getUserVpnAccount(user._id) as ConvexVpnAccount;
       if (!vpnAccount) {
-        return "У вас нет активного VPN-аккаунта";
+        return "У вас нет VPN-аккаунта.";
       }
 
-      // Обновляем статистику использования трафика
-      try {
-        await convexClient.updateTrafficUsage(vpnAccount.email);
-      } catch (error) {
-        logger.error("Ошибка обновления статистики трафика", error);
-      }
-
-      // Получаем обновленные данные аккаунта
-      const updatedAccount = await convexClient.getUserVpnAccount(user._id) as ConvexVpnAccount;
-      if (!updatedAccount) {
-        return "Не удалось получить данные VPN-аккаунта";
-      }
-
-      // Получаем данные подписки
-      const subscription = await convexClient.getActiveSubscription(user._id) as ConvexSubscription;
-      if (!subscription) {
-        return "У вас нет активной подписки";
-      }
-
+      // Обновляем статистику использования VPN
+      const updatedAccount = await convexClient.updateVpnAccountStats(vpnAccount._id) as ConvexVpnAccount;
+      
       // Формируем ответ с информацией о VPN-аккаунте
       const trafficUsed = VpnService.formatTraffic(updatedAccount.trafficUsed);
       const trafficLimit = VpnService.formatTraffic(updatedAccount.trafficLimit);
@@ -146,18 +137,28 @@ export class VpnService {
       
       const statusMap: Record<string, string> = {
         active: "Активен",
+        inactive: "Неактивен",
         expired: "Истек",
         blocked: "Заблокирован"
       };
 
-      return `📊 *Информация о VPN-подписке*
+      let message = `📊 *Информация о VPN-подписке*
 
 🔹 *Тариф*: ${subscription.plan.name}
 🔹 *Статус*: ${statusMap[updatedAccount.status] || updatedAccount.status}
 🔹 *Действует до*: ${expiryDate}
-🔹 *Трафик*: ${trafficUsed} из ${trafficLimit} (${trafficPercentage}%)
+🔹 *Трафик*: ${trafficUsed} из ${trafficLimit} (${trafficPercentage}%)`;
 
-Для просмотра данных для подключения используйте команду /connection`;
+      const isInactive = updatedAccount.status === "inactive" || updatedAccount.status === "expired";
+      const isTrafficExceeded = updatedAccount.trafficUsed >= updatedAccount.trafficLimit;
+      const isExpired = Date.now() > updatedAccount.expiresAt;
+      
+      isInactive && (
+        isTrafficExceeded && (message += `\n\n⚠️ *Ваш трафик исчерпан*. Выберите новый тариф или продлите текущий.`) ||
+        isExpired && (message += `\n\n⚠️ *Срок действия вашей подписки истек*. Выберите новый тариф или продлите текущий.`)
+      );
+
+      return message;
     } catch (error) {
       logger.error("Ошибка получения статистики VPN", error);
       return "Произошла ошибка при получении статистики VPN";
@@ -190,13 +191,7 @@ export class VpnService {
       // Возвращаем строку подключения
       return `🔐 *Данные для подключения к VPN*
 
-Воспользуйтесь приложением V2rayNG для Android или Happ для iOS.
-
-📲 *Инструкция*:
-1. Установите приложение
-2. Нажмите на кнопку "+" или "Добавить"
-3. Выберите "Сканировать QR-код" или "Импортировать из буфера обмена"
-4. Вставьте или отсканируйте конфигурацию
+Воспользуйтесь инструкцией для подключения VPN на вашем устройстве.
 
 📋 *Ваша конфигурация*:
 \`\`\`
@@ -270,11 +265,137 @@ ${vpnAccount.connectionDetails}
 
       return `✅ VPN-аккаунт успешно создан!
 
-Для просмотра статистики используйте команду /subscription
-Для получения данных подключения используйте команду /connection`;
+Для просмотра статистики используйте кнопку "📊 Моя подписка"
+Для получения данных подключения используйте кнопку "🔑 Данные для подключения"`;
     } catch (error) {
       logger.error("Ошибка создания VPN-аккаунта", error);
       return "Произошла ошибка при создании VPN-аккаунта. Пожалуйста, обратитесь в поддержку.";
+    }
+  }
+
+  /**
+   * Продлевает текущую подписку пользователя
+   * @param telegramId ID пользователя в Telegram
+   * @param planId ID тарифа для продления
+   * @returns Сообщение о результате операции
+   */
+  async extendSubscription(telegramId: string, planId: string): Promise<string> {
+    try {
+      // Получаем пользователя из Convex
+      const user = await convexClient.getUserByTelegramId(telegramId) as ConvexUser;
+      if (!user) {
+        return "Пользователь не найден";
+      }
+      
+      // Получаем VPN-аккаунт пользователя
+      const vpnAccount = await convexClient.getUserVpnAccount(user._id) as ConvexVpnAccount;
+      if (!vpnAccount) {
+        return "У вас нет VPN-аккаунта.";
+      }
+      
+      // Получаем подписку пользователя
+      const subscription = await convexClient.getSubscription(user._id) as ConvexSubscription;
+      if (!subscription) {
+        return "У вас нет активной подписки.";
+      }
+      
+      // Получаем план подписки
+      const plan = await convexClient.query(api.subscriptionPlans.getPlanById, {
+        planId: planId,
+      });
+      
+      if (!plan) {
+        return "Выбранный тариф недоступен. Пожалуйста, выберите другой тариф.";
+      }
+      
+      // Продлеваем подписку
+      await convexClient.extendSubscription(subscription._id, planId as Id<"subscriptionPlans">);
+      
+      // Активируем и обновляем VPN-аккаунт
+      const reactivateResult = await convexClient.reactivateVpnAccount(
+        vpnAccount._id,
+        subscription.expiresAt,
+        plan.trafficGB * 1024 * 1024 * 1024 // Конвертируем ГБ в байты
+      );
+      
+      if (!reactivateResult) {
+        return "Не удалось активировать VPN-аккаунт. Пожалуйста, обратитесь в поддержку.";
+      }
+      
+      return `✅ Подписка успешно продлена!
+
+🔹 *Тариф*: ${plan.name}
+🔹 *Период*: ${plan.durationDays} дней
+🔹 *Трафик*: ${plan.trafficGB} ГБ
+
+Для просмотра статистики используйте кнопку "📊 Моя подписка"
+Для получения данных подключения используйте кнопку "🔑 Данные для подключения"`;
+    } catch (error) {
+      logger.error("Ошибка продления подписки", error);
+      return "Произошла ошибка при продлении подписки. Пожалуйста, обратитесь в поддержку.";
+    }
+  }
+  
+  /**
+   * Меняет тариф подписки пользователя
+   * @param telegramId ID пользователя в Telegram
+   * @param newPlanId ID нового тарифа
+   * @returns Сообщение о результате операции
+   */
+  async changeSubscriptionPlan(telegramId: string, newPlanId: string): Promise<string> {
+    try {
+      // Получаем пользователя из Convex
+      const user = await convexClient.getUserByTelegramId(telegramId) as ConvexUser;
+      if (!user) {
+        return "Пользователь не найден";
+      }
+      
+      // Получаем VPN-аккаунт пользователя
+      const vpnAccount = await convexClient.getUserVpnAccount(user._id) as ConvexVpnAccount;
+      if (!vpnAccount) {
+        return "У вас нет VPN-аккаунта.";
+      }
+      
+      // Получаем подписку пользователя
+      const subscription = await convexClient.getSubscription(user._id) as ConvexSubscription;
+      if (!subscription) {
+        return "У вас нет активной подписки.";
+      }
+      
+      // Получаем новый план подписки
+      const newPlan = await convexClient.query(api.subscriptionPlans.getPlanById, {
+        planId: newPlanId,
+      });
+      
+      if (!newPlan) {
+        return "Выбранный тариф недоступен. Пожалуйста, выберите другой тариф.";
+      }
+      
+      // Обновляем подписку на новый тариф
+      await convexClient.changePlan(subscription._id, newPlanId as Id<"subscriptionPlans">);
+      
+      // Активируем и обновляем VPN-аккаунт
+      const reactivateResult = await convexClient.reactivateVpnAccount(
+        vpnAccount._id,
+        subscription.expiresAt,
+        newPlan.trafficGB * 1024 * 1024 * 1024 // Конвертируем ГБ в байты
+      );
+      
+      if (!reactivateResult) {
+        return "Не удалось активировать VPN-аккаунт с новым тарифом. Пожалуйста, обратитесь в поддержку.";
+      }
+      
+      return `✅ Тариф успешно изменен!
+
+🔹 *Новый тариф*: ${newPlan.name}
+🔹 *Период*: ${newPlan.durationDays} дней
+🔹 *Трафик*: ${newPlan.trafficGB} ГБ
+
+Для просмотра статистики используйте кнопку "📊 Моя подписка"
+Для получения данных подключения используйте кнопку "🔑 Данные для подключения"`;
+    } catch (error) {
+      logger.error("Ошибка смены тарифа", error);
+      return "Произошла ошибка при смене тарифа. Пожалуйста, обратитесь в поддержку.";
     }
   }
 }
