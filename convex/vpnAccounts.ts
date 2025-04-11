@@ -1,7 +1,11 @@
+"use node";
+
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { Id } from "./_generated/dataModel";
 import { Doc } from "./_generated/dataModel";
+import { api } from "./_generated/api";
+import axios from "axios";
 
 // Определяем типы для объекта internal
 declare module "./_generated/api" {
@@ -55,7 +59,9 @@ interface VpnAccountCreateArgs {
   connectionDetails: string;
 }
 
-// Получение VPN-аккаунта пользователя
+/**
+* Получение VPN-аккаунта пользователя
+*/
 export const getUserVpnAccount = query({
   args: { userId: v.id("users") },
   handler: async (ctx, args) => {
@@ -66,7 +72,9 @@ export const getUserVpnAccount = query({
   },
 });
 
-// Получение VPN-аккаунта по ID
+/**
+* Получение VPN-аккаунта по ID
+*/
 export const getVpnAccountById = query({
   args: { accountId: v.id("vpnAccounts") },
   handler: async (ctx, args) => {
@@ -74,7 +82,9 @@ export const getVpnAccountById = query({
   },
 });
 
-// Получение VPN-аккаунта по email
+/**
+* Получение VPN-аккаунта по email
+*/
 export const getVpnAccountByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
@@ -85,7 +95,9 @@ export const getVpnAccountByEmail = query({
   },
 });
 
-// Сохранение информации о VPN-аккаунте в БД
+/**
+* Сохранение информации о VPN-аккаунте в БД
+*/
 export const saveVpnAccount = mutation({
   args: {
     userId: v.id("users"),
@@ -117,7 +129,9 @@ export const saveVpnAccount = mutation({
   },
 });
 
-// Продление существующего VPN-аккаунта
+/**
+* Продление существующего VPN-аккаунта
+*/
 export const extendVpnAccount = mutation({
   args: {
     accountId: v.id("vpnAccounts"),
@@ -143,7 +157,39 @@ export const extendVpnAccount = mutation({
   },
 });
 
-// Реактивация VPN-аккаунта (для продления или смены тарифа)
+/**
+* Обновление данных VPN-аккаунта
+*/
+export const updateVpnAccountData = mutation({
+  args: {
+    accountId: v.id("vpnAccounts"),
+    expiresAt: v.number(),
+    trafficLimit: v.number(),
+    status: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const account = await ctx.db.get(args.accountId);
+    
+    if (!account) {
+      throw new Error("VPN-аккаунт не найден");
+    }
+    
+    // Обновляем данные в базе Convex
+    await ctx.db.patch(args.accountId, {
+      status: args.status,
+      expiresAt: args.expiresAt,
+      trafficLimit: args.trafficLimit,
+      // Не сбрасываем trafficUsed, чтобы не обнулять статистику
+      lastUpdatedAt: Date.now(),
+    });
+    
+    return await ctx.db.get(args.accountId);
+  },
+});
+
+/**
+* Реактивация VPN-аккаунта (для продления или смены тарифа)
+*/
 export const reactivateVpnAccount = mutation({
   args: {
     accountId: v.id("vpnAccounts"),
@@ -158,19 +204,53 @@ export const reactivateVpnAccount = mutation({
       throw new Error("VPN-аккаунт не найден");
     }
     
+    // Обновляем данные в базе Convex
     await ctx.db.patch(args.accountId, {
       status: "active",
       expiresAt: args.expiresAt,
       trafficLimit: args.trafficLimit,
-      // Не сбрасываем trafficUsed, чтобы не обнулять статистику
       lastUpdatedAt: Date.now(),
     });
+    
+    // Асинхронно вызываем action для обновления клиента в 3x-ui API
+    // не ждем завершения, так как данные в базе уже обновлены
+    const executeAction = async (accountId: string, expiresAt: number, trafficLimit: number) => {
+      try {
+        // Создаем URL для action
+        const deploymentUrl = process.env.DEPLOYMENT_URL || "http://localhost:3000";
+        const actionUrl = `${deploymentUrl}/_/action`;
+        
+        const response = await fetch(actionUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: "vpnAccountActions:updateVpnAccount",
+            args: {
+              accountId,
+              expiresAt,
+              trafficLimit,
+            },
+          }),
+        });
+        
+        console.log("Результат вызова экшена:", await response.json());
+      } catch (error) {
+        console.error("Ошибка при вызове действия updateVpnAccount:", error);
+      }
+    };
+    
+    // Запускаем асинхронно, не ждем завершения
+    executeAction(args.accountId, args.expiresAt, args.trafficLimit);
     
     return true;
   },
 });
 
-// Обновление использования трафика аккаунта
+/**
+* Обновление использования трафика аккаунта
+*/
 export const updateAccountTraffic = mutation({
   args: {
     accountId: v.id("vpnAccounts"),
@@ -192,7 +272,9 @@ export const updateAccountTraffic = mutation({
   },
 });
 
-// Деактивация VPN-аккаунта
+/**
+* Деактивация VPN-аккаунта
+*/
 export const deactivateAccount = mutation({
   args: {
     accountId: v.id("vpnAccounts"),
@@ -218,7 +300,9 @@ export const deactivateAccount = mutation({
   },
 });
 
-// Проверка статуса всех VPN-аккаунтов (для автоматического обновления)
+/**
+* Проверка статуса всех VPN-аккаунтов (для автоматического обновления)
+*/
 export const checkAccountsStatus = mutation({
   returns: v.object({
     expiredCount: v.number(),
@@ -354,7 +438,9 @@ export const checkAccountsStatus = mutation({
   },
 });
 
-// Вспомогательная функция для склонения слова "день"
+/**
+* Вспомогательная функция для склонения слова "день"
+*/
 function getDayWord(days: number): string {
   if (days >= 11 && days <= 19) return "дней";
   const lastDigit = days % 10;
@@ -363,7 +449,9 @@ function getDayWord(days: number): string {
   return "дней";
 }
 
-// Удаление VPN-аккаунта из БД
+/**
+* Удаление VPN-аккаунта из БД
+*/
 export const removeVpnAccount = mutation({
   args: {
     accountId: v.id("vpnAccounts"),

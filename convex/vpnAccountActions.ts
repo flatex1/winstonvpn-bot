@@ -25,64 +25,6 @@ type Subscription = {
   };
 };
 
-// Типы для 3x-ui API
-interface Inbound {
-  id: number;
-  port: number;
-  protocol: string;
-  settings: string;
-  streamSettings: string;
-  tag: string;
-  sniffing: string;
-  remark: string;
-  up: number;
-  down: number;
-  enable: boolean;
-  expiryTime: number;
-  clientStats: ClientStat[];
-}
-
-interface ClientStat {
-  id: string;
-  email: string;
-  up: number;
-  down: number;
-  total: number;
-  expiryTime: number;
-}
-
-interface VpnClient {
-  id: string;
-  email: string;
-  flow?: string;
-  alterId?: number;
-  totalGB?: number;
-  expiryTime?: number;
-  enable?: boolean;
-}
-
-interface StreamSettings {
-  network: string;
-  security: string;
-  tcpSettings?: {
-    header?: {
-      type?: string;
-      request?: {
-        path?: string;
-      };
-    };
-  };
-  wsSettings?: {
-    path?: string;
-    headers?: {
-      Host?: string;
-    };
-  };
-  tlsSettings?: {
-    serverName?: string;
-  };
-}
-
 // Определяем типы для данных HTTP клиента
 interface HttpResponse<T = any> {
   success: boolean;
@@ -92,166 +34,138 @@ interface HttpResponse<T = any> {
   data?: T;
 }
 
-// Определяем класс для ошибок HTTP
-class HttpError extends Error {
-  status: number;
-  data: any;
+// Вспомогательные функции для работы с 3x-ui API
+/**
+ * Авторизация в 3x-ui API и получение cookie сессии
+ * @returns Строка cookie для авторизации или null в случае ошибки
+ */
+async function authorizeXuiApi(): Promise<string | null> {
+  const XUI_API_URL = process.env.XUI_API_URL;
+  const XUI_API_USERNAME = process.env.XUI_API_USERNAME;
+  const XUI_API_PASSWORD = process.env.XUI_API_PASSWORD;
   
-  constructor(message: string, status: number, data?: any) {
-    super(message);
-    this.name = "HttpError";
-    this.status = status;
-    this.data = data;
+  if (!XUI_API_URL || !XUI_API_USERNAME || !XUI_API_PASSWORD) {
+    console.log("Отсутствуют настройки для подключения к 3x-ui API");
+    return null;
   }
-}
-
-// Простой HTTP клиент для использования в actions
-class HttpClient {
-  async get<T>(url: string, config?: any): Promise<HttpResponse<T>> {
-    console.log("HTTP GET запрос:", url);
-    try {
-      // Обработка заголовков авторизации
-      const headers = config?.headers || {};
-      
-      const response = await axios.get<T>(url, {
-        ...config,
-        headers
-      });
-      
-      console.log("HTTP GET успешный ответ, код:", response.status);
-      
-      // Добавляем проверку особенностей API
-      const responseData = this.processResponse<T>(response);
-      return responseData;
-    } catch (error) {
-      console.log("Ошибка HTTP GET запроса:", url, error);
-      return this.handleError(error);
-    }
-  }
-
-  async post<T>(url: string, config?: any): Promise<HttpResponse<T>> {
-    console.log("HTTP POST запрос:", url, "тело:", config?.body);
-    try {
-      // Обработка заголовков авторизации
-      const headers = config?.headers || {};
-      
-      const response = await axios.post<T>(url, config?.body, {
-        headers,
-      });
-      
-      console.log("HTTP POST успешный ответ, код:", response.status);
-      
-      // Добавляем проверку особенностей API
-      const responseData = this.processResponse<T>(response);
-      return responseData;
-    } catch (error) {
-      console.log("Ошибка HTTP POST запроса:", url, error);
-      return this.handleError(error);
-    }
-  }
-
-  private processResponse<T>(response: any): HttpResponse<T> {
-    // Правильно обрабатываем заголовки
-    const headers = this.formatHeaders(response.headers);
-    
-    // Проверяем, есть ли в ответе стандартное API поле success
-    const data = response.data;
-    
-    // Проверяем несколько вариантов структуры ответа
-    if (typeof data === 'object' && data !== null) {
-      // Если в ответе есть поле success, используем его
-      if ('success' in data) {
-        return {
-          success: Boolean(data.success),
-          message: data.message || '',
-          data,
-          obj: data,
-          headers
-        };
-      }
-      
-      // Если у нас JSON и нет явной ошибки, считаем запрос успешным
-      return {
-        success: true,
-        data,
-        obj: data,
-        headers
-      };
-    }
-    
-    // Для других типов данных
-    return {
-      success: true,
-      data,
-      obj: data as any,
-      headers
-    };
-  }
-
-  private formatHeaders(headers: any): Record<string, string[]> {
-    const result: Record<string, string[]> = {};
-    if (!headers) return result;
-    
-    // Преобразуем заголовки в нужный формат
-    Object.keys(headers).forEach(key => {
-      const value = headers[key];
-      if (Array.isArray(value)) {
-        result[key] = value;
-      } else if (value !== undefined && value !== null) {
-        result[key] = [String(value)];
+  
+  console.log("Запрос авторизации в 3x-ui API");
+  try {
+    const loginResponse = await axios.post(`${XUI_API_URL}/login`, {
+      username: XUI_API_USERNAME,
+      password: XUI_API_PASSWORD,
+    }, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
       }
     });
     
-    return result;
-  }
-
-  private handleError(error: unknown): HttpResponse {
-    console.log("Ошибка HTTP запроса:", error);
+    console.log("Статус авторизации:", loginResponse.status);
     
-    if (axios.isAxiosError(error)) {
-      const axiosError = error as AxiosError;
-      
-      // Выводим дополнительную информацию для отладки
-      console.log("Статус ошибки:", axiosError.response?.status);
-      console.log("Данные ошибки:", axiosError.response?.data);
-      
-      // Проверяем, есть ли данные в ответе
-      if (axiosError.response?.data) {
-        // Для API, которые возвращают структурированные ошибки
-        const responseData = axiosError.response.data;
-        
-        // Пытаемся извлечь сообщение об ошибке
-        let errorMessage = axiosError.message;
-        if (typeof responseData === 'object' && responseData !== null) {
-          if ('message' in responseData) {
-            errorMessage = String(responseData.message);
-          } else if ('error' in responseData) {
-            errorMessage = String(responseData.error);
-          }
-        }
-        
-        return {
-          success: false,
-          message: errorMessage,
-          data: responseData,
-        };
-      }
-      
-      // Стандартная обработка
-      return {
-        success: false,
-        message: axiosError.message,
-        data: axiosError.response?.data,
-      };
+    // Получаем cookie из ответа
+    const cookies = loginResponse.headers['set-cookie'] || [];
+    const sessionCookie = cookies.length > 0 ? cookies[0].split(';')[0] : '';
+    
+    if (!sessionCookie) {
+      console.log("Не найден cookie в ответе API");
+      return null;
     }
     
-    // Для не-Axios ошибок
-    return {
-      success: false,
-      message: error instanceof Error ? error.message : String(error),
-    };
+    return sessionCookie;
+  } catch (error) {
+    console.error("Ошибка авторизации в 3x-ui API:", error);
+    return null;
   }
 }
+
+/**
+ * Обновление данных клиента в 3x-ui API
+ * @param account VPN аккаунт
+ * @param expiresAt Время истечения аккаунта
+ * @param trafficLimit Лимит трафика
+ * @returns true если обновление прошло успешно, иначе false
+ */
+export async function updateXuiClient(account: VpnAccount, expiresAt: number, trafficLimit: number): Promise<boolean> {
+  const XUI_API_URL = process.env.XUI_API_URL;
+  if (!XUI_API_URL) {
+    console.log("Отсутствует URL для подключения к 3x-ui API");
+    return false;
+  }
+  
+  const sessionCookie = await authorizeXuiApi();
+  if (!sessionCookie) {
+    return false;
+  }
+  
+  try {
+    const clientSettings = {
+      id: account.clientId,
+      email: account.email,
+      expiryTime: expiresAt,
+      totalGB: trafficLimit,
+      enable: true
+    };
+    
+    const requestData = {
+      id: account.inboundId,
+      settings: JSON.stringify({
+        clients: [clientSettings]
+      })
+    };
+    
+    const updateResponse = await axios.post(
+      `${XUI_API_URL}/panel/api/inbounds/updateClient`,
+      requestData,
+      {
+        headers: {
+          Cookie: sessionCookie,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      }
+    );
+    
+    if (!updateResponse.data || !updateResponse.data.success) {
+      console.log("Ошибка обновления клиента:", updateResponse.data);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("Ошибка при обновлении клиента в 3x-ui API:", error);
+    return false;
+  }
+}
+
+// Обновление или реактивация VPN-аккаунта
+export const updateVpnAccount = action({
+  args: {
+    accountId: v.id("vpnAccounts"),
+    expiresAt: v.number(),
+    trafficLimit: v.number(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args): Promise<boolean> => {
+    console.log("updateVpnAccount action вызвана с параметрами:", args);
+    
+    const account = await ctx.runQuery(api.vpnAccounts.getVpnAccountById, {
+      accountId: args.accountId,
+    }) as VpnAccount | null;
+    
+    if (!account) {
+      throw new Error("VPN-аккаунт не найден");
+    }
+    
+    // Обновляем клиента в 3x-ui API
+    const updateResult = await updateXuiClient(account, args.expiresAt, args.trafficLimit);
+    
+    // Данные в базе уже обновлены через reactivateVpnAccount
+    // Это действие вызывается только для обновления данных в 3x-ui API
+    
+    return updateResult;
+  },
+});
 
 // Создание нового VPN-аккаунта через 3x-ui API
 export const createVpnAccount = action({
@@ -295,21 +209,23 @@ export const createVpnAccount = action({
           trafficLimit: subscription.plan.trafficGB * 1024 * 1024 * 1024, // в байтах
         }) as VpnAccount;
       } else {
-        // Если аккаунт не активен, реактивируем его
-        const reactivated = await ctx.runMutation(api.vpnAccounts.reactivateVpnAccount, {
+        // Если аккаунт не активен, реактивируем его через API и в базе данных
+        const trafficLimitBytes = subscription.plan.trafficGB * 1024 * 1024 * 1024;
+        
+        // Обновляем клиента в 3x-ui API
+        await updateXuiClient(existingAccount, subscription.expiresAt, trafficLimitBytes);
+        
+        // Обновляем данные в базе
+        await ctx.runMutation(api.vpnAccounts.reactivateVpnAccount, {
           accountId: existingAccount._id,
           expiresAt: subscription.expiresAt,
-          trafficLimit: subscription.plan.trafficGB * 1024 * 1024 * 1024, // в байтах
+          trafficLimit: trafficLimitBytes,
         });
         
-        if (reactivated) {
-          // Получаем обновленные данные аккаунта
-          return await ctx.runQuery(api.vpnAccounts.getVpnAccountById, {
-            accountId: existingAccount._id
-          }) as VpnAccount;
-        } else {
-          throw new Error("Не удалось реактивировать VPN аккаунт");
-        }
+        // Получаем обновленные данные аккаунта
+        return await ctx.runQuery(api.vpnAccounts.getVpnAccountById, {
+          accountId: existingAccount._id
+        }) as VpnAccount;
       }
     }
 
@@ -326,32 +242,11 @@ export const createVpnAccount = action({
     const email = `tg_${user.telegramId}_${Date.now()}`;
 
     try {
-      // Сначала авторизуемся для получения cookie
-      console.log("Запрос авторизации в 3x-ui API");
-      const loginResponse = await axios.post(`${XUI_API_URL}/login`, {
-        username: XUI_API_USERNAME,
-        password: XUI_API_PASSWORD,
-      }, {
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
-      
-      console.log("Статус авторизации:", loginResponse.status);
-      
-      // Получаем cookie из ответа
-      const cookies = loginResponse.headers['set-cookie'] || [];
-      const sessionCookie = cookies.length > 0 ? cookies[0].split(';')[0] : '';
-      
+      const sessionCookie = await authorizeXuiApi();
       if (!sessionCookie) {
-        console.log("Не найден cookie в ответе API");
-        throw new Error("Не удалось получить cookie для авторизации в 3x-ui API");
+        throw new Error("Не удалось авторизоваться в 3x-ui API");
       }
       
-      console.log("Получен cookie:", sessionCookie);
-      
-      // Получаем список inbounds для проверки существования нужного inbound
       console.log("Запрос списка inbounds");
       const inboundsResponse = await axios.get(`${XUI_API_URL}/panel/api/inbounds/list`, {
         headers: {
@@ -363,8 +258,7 @@ export const createVpnAccount = action({
       
       console.log("Статус ответа списка inbounds:", inboundsResponse.status);
       const inboundsData = inboundsResponse.data;
-      
-      // Проверяем успешность запроса
+
       if (!inboundsData || !inboundsData.success) {
         console.log("Ошибка получения списка inbounds:", inboundsData);
         throw new Error("Не удалось получить список inbounds");
@@ -865,7 +759,9 @@ export const updateTrafficUsage = action({
   },
 });
 
-// Удаление VPN-аккаунта (и в 3x-ui тоже)
+/**
+* Удаление VPN-аккаунта (и в 3x-ui тоже)
+*/
 export const deleteVpnAccount = action({
   args: {
     accountId: v.id("vpnAccounts"),
