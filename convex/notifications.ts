@@ -1,12 +1,9 @@
 import { v } from "convex/values";
 import { mutation, query, action } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
-import { Doc } from "./_generated/dataModel";
 
-// Тип документа уведомления
-type Notification = Doc<"notifications">;
-
-// Получение всех непрочитанных и неотправленных уведомлений
+/**
+ * Получение всех непрочитанных и неотправленных уведомлений
+ */
 export const getUnsentNotifications = query({
   args: {},
   returns: v.array(
@@ -23,7 +20,7 @@ export const getUnsentNotifications = query({
     })
   ),
   handler: async (ctx) => {
-    // Получаем все непрочитанные уведомления, которые ещё не были отправлены
+    // Получаем все (TODO) непрочитанные уведомления, которые ещё не были отправлены
     const notifications = await ctx.db
       .query("notifications")
       .filter((q) => 
@@ -42,7 +39,9 @@ export const getUnsentNotifications = query({
   },
 });
 
-// Пометка уведомления как отправленное
+/**
+ * Пометка уведомления как отправленное
+ */
 export const markAsSent = mutation({
   args: {
     notificationId: v.id("notifications"),
@@ -64,7 +63,9 @@ export const markAsSent = mutation({
   },
 });
 
-// Пометка уведомления как прочитанное
+/**
+ * TODO (или не TODO): Пометка уведомления как прочитанное
+ */
 export const markAsRead = mutation({
   args: {
     notificationId: v.id("notifications"),
@@ -86,7 +87,9 @@ export const markAsRead = mutation({
   },
 });
 
-// Получение уведомлений пользователя
+/**
+ * Получение уведомлений пользователя
+ */
 export const getUserNotifications = query({
   args: {
     userId: v.id("users"),
@@ -106,7 +109,6 @@ export const getUserNotifications = query({
     // Устанавливаем лимит по умолчанию, если он не указан
     const limit = args.limit ?? 20;
     
-    // Получаем уведомления пользователя, отсортированные по времени создания (новые в начале)
     const notifications = await ctx.db
       .query("notifications")
       .withIndex("by_user", (q) => q.eq("userId", args.userId))
@@ -117,7 +119,9 @@ export const getUserNotifications = query({
   },
 });
 
-// Отправка уведомления пользователю
+/**
+ * Отправка уведомления пользователю
+ */
 export const sendNotification = action({
   args: {
     telegramId: v.string(),
@@ -137,13 +141,10 @@ export const sendNotification = action({
         throw new Error("Отсутствует токен Telegram-бота");
       }
       
-      // Импортируем grammy для работы с Telegram API
       const { Bot } = await import("grammy");
       
-      // Создаем экземпляр бота
       const bot = new Bot(TELEGRAM_BOT_TOKEN);
       
-      // Отправляем сообщение пользователю
       await bot.api.sendMessage(args.telegramId, args.message, {
         parse_mode: "HTML",
       });
@@ -159,7 +160,9 @@ export const sendNotification = action({
   },
 });
 
-// Добавление нового уведомления
+/**
+ * Добавление нового уведомления
+ */
 export const addNotification = mutation({
   args: {
     userId: v.id("users"),
@@ -171,7 +174,6 @@ export const addNotification = mutation({
   handler: async (ctx, args) => {
     const now = Date.now();
     
-    // Сохраняем уведомление в базе данных
     const notificationId = await ctx.db.insert("notifications", {
       userId: args.userId,
       type: args.type,

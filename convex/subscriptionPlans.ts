@@ -1,8 +1,19 @@
 import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
-import { Id } from "./_generated/dataModel";
 
-// Получение всех активных тарифов
+/**
+ * Модуль для управления тарифными планами подписки VPN.
+ * Содержит функции для создания, чтения, обновления и удаления тарифов.
+ */
+
+/**
+ * Получает все активные тарифные планы.
+ * 
+ * @returns {Promise<Array<object>>} Массив активных тарифных планов.
+ * @example
+ * // Пример использования в клиентском коде
+ * const activePlans = await client.query(subscriptionPlans.getActivePlans);
+ */
 export const getActivePlans = query({
   handler: async (ctx) => {
     return await ctx.db
@@ -12,14 +23,25 @@ export const getActivePlans = query({
   },
 });
 
-// Получение всех тарифов (для админов)
+/**
+ * Получает все тарифные планы независимо от их статуса активности.
+ * Предназначено для использования администраторами.
+ * 
+ * @returns {Promise<Array<object>>} Массив всех тарифных планов.
+ */
 export const getAllPlans = query({
   handler: async (ctx) => {
     return await ctx.db.query("subscriptionPlans").collect();
   },
 });
 
-// Получение тарифа по ID
+/**
+ * Получает тарифный план по его идентификатору.
+ * 
+ * @param {object} args - Аргументы запроса.
+ * @param {Id<"subscriptionPlans">} args.planId - Идентификатор тарифного плана.
+ * @returns {Promise<object|null>} Тарифный план или null, если план не найден.
+ */
 export const getPlanById = query({
   args: { planId: v.id("subscriptionPlans") },
   handler: async (ctx, args) => {
@@ -27,7 +49,17 @@ export const getPlanById = query({
   },
 });
 
-// Создание нового тарифа
+/**
+ * Создает новый тарифный план с указанными параметрами.
+ * 
+ * @param {object} args - Аргументы для создания тарифа.
+ * @param {string} args.name - Название тарифного плана.
+ * @param {string} args.description - Описание тарифного плана.
+ * @param {number} args.durationDays - Продолжительность тарифа в днях.
+ * @param {number} args.trafficGB - Лимит трафика в гигабайтах.
+ * @param {boolean} args.isActive - Флаг активности тарифа.
+ * @returns {Promise<Id<"subscriptionPlans">>} Идентификатор созданного тарифного плана.
+ */
 export const createPlan = mutation({
   args: {
     name: v.string(),
@@ -47,7 +79,20 @@ export const createPlan = mutation({
   },
 });
 
-// Обновление существующего тарифа
+/**
+ * Обновляет существующий тарифный план.
+ * Обновляются только те поля, которые переданы в аргументах.
+ * 
+ * @param {object} args - Аргументы для обновления тарифа.
+ * @param {Id<"subscriptionPlans">} args.planId - Идентификатор тарифного плана.
+ * @param {string} [args.name] - Новое название тарифного плана (опционально).
+ * @param {string} [args.description] - Новое описание тарифного плана (опционально).
+ * @param {number} [args.durationDays] - Новая продолжительность тарифа в днях (опционально).
+ * @param {number} [args.trafficGB] - Новый лимит трафика в гигабайтах (опционально).
+ * @param {boolean} [args.isActive] - Новый флаг активности тарифа (опционально).
+ * @returns {Promise<object>} Обновленный тарифный план.
+ * @throws {Error} Ошибка, если тариф не найден.
+ */
 export const updatePlan = mutation({
   args: {
     planId: v.id("subscriptionPlans"),
@@ -78,7 +123,14 @@ export const updatePlan = mutation({
   },
 });
 
-// Удаление тарифа
+/**
+ * Удаляет тарифный план или деактивирует его, если он используется в подписках пользователей.
+ * 
+ * @param {object} args - Аргументы для удаления тарифа.
+ * @param {Id<"subscriptionPlans">} args.planId - Идентификатор тарифного плана.
+ * @returns {Promise<boolean>} true, если тариф был полностью удален; false, если тариф был только деактивирован.
+ * @throws {Error} Ошибка, если тариф не найден.
+ */
 export const deletePlan = mutation({
   args: { planId: v.id("subscriptionPlans") },
   handler: async (ctx, args) => {
@@ -105,7 +157,15 @@ export const deletePlan = mutation({
   },
 });
 
-// Создание начальных тарифов (для инициализации)
+/**
+ * Инициализирует базовые тарифные планы в системе.
+ * Создает стандартный набор тарифов VLESS с различными параметрами.
+ * Функция предотвращает повторную инициализацию, если в базе уже есть тарифы.
+ * 
+ * @returns {Promise<object>} Объект с информацией о результате операции.
+ * @property {boolean} success - Флаг успешности операции.
+ * @property {string} message - Сообщение о результате операции.
+ */
 export const initializeDefaultPlans = mutation({
   handler: async (ctx) => {
     // Проверяем, есть ли уже тарифы
@@ -151,7 +211,7 @@ export const initializeDefaultPlans = mutation({
       name: "VLESS Безлимитный",
       description: "Безлимитный доступ к VPN на 30 дней",
       durationDays: 30,
-      trafficGB: 1000, // Имитация безлимита
+      trafficGB: 1000, // Имитация безлимита. TODO: сделать нормальный безлимит.
       isActive: true,
     });
     
